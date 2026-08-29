@@ -47,7 +47,11 @@ function runYtDlp(args: string[]): Promise<string> {
         "node",
         "--remote-components",
         "ejs:github",
+        "--extractor-args",
+        "youtube:player_client=web_embedded,mweb",
         "--no-check-certificates",
+        "--socket-timeout",
+        "10",
         ...args,
       ],
       {
@@ -109,7 +113,7 @@ export async function POST(req: NextRequest) {
 
     const normalizedUrl = normalizeYouTubeUrl(url);
 
-    // Check fast cache first
+    // Check fast cache first (<1ms)
     const cached = analysisCache.get(normalizedUrl);
     if (cached && cached.expiresAt > Date.now()) {
       return NextResponse.json(cached.data);

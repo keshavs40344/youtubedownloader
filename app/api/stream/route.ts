@@ -10,14 +10,12 @@ export const maxDuration = 60;
 
 function getFfmpegPath(): string | null {
   try {
-    // 1. Try ffmpeg-static npm package
     const ffmpegStatic = require("ffmpeg-static");
     if (ffmpegStatic && fs.existsSync(ffmpegStatic)) {
       return ffmpegStatic;
     }
   } catch {}
 
-  // 2. Check local node_modules path
   const localFfmpeg = path.join(process.cwd(), "node_modules", "ffmpeg-static", "ffmpeg.exe");
   if (fs.existsSync(localFfmpeg)) {
     return localFfmpeg;
@@ -53,24 +51,19 @@ export async function GET(req: NextRequest) {
     const ffmpegPath = getFfmpegPath();
 
     let formatSelector = formatId;
-
-    // If downloading a video (MP4 / WebM), ALWAYS merge best audio with the selected video resolution
     const isVideo = ext === "mp4" || ext === "webm" || ext === "mkv";
 
     if (isVideo) {
       if (formatId === "18") {
-        // Format 18 is YouTube's progressive video+audio stream
         formatSelector = "18/best[ext=mp4]/best";
       } else if (formatId === "best" || !formatId) {
         formatSelector = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best";
       } else if (height) {
         formatSelector = `bestvideo[height<=${height}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${height}]+bestaudio/best[height<=${height}]/best`;
       } else {
-        // Merge the requested format with best audio
         formatSelector = `${formatId}+bestaudio[ext=m4a]/${formatId}+bestaudio/best`;
       }
     } else {
-      // Audio only
       if (formatId === "bestaudio" || !formatId) {
         formatSelector = ext === "m4a" ? "bestaudio[ext=m4a]/bestaudio/best" : "bestaudio/best";
       } else {
@@ -78,6 +71,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // High-speed multi-threaded flags
     const args = [
       "-m",
       "yt_dlp",
@@ -89,9 +83,15 @@ export async function GET(req: NextRequest) {
       "youtube:player_client=web_embedded,mweb",
       "--no-check-certificates",
       "--concurrent-fragments",
-      "4",
+      "8",
       "--buffer-size",
-      "16M",
+      "32M",
+      "--http-chunk-size",
+      "20M",
+      "--retries",
+      "5",
+      "--fragment-retries",
+      "5",
       "-f",
       formatSelector,
       "--no-warnings",
@@ -113,7 +113,7 @@ export async function GET(req: NextRequest) {
     });
 
     const passThrough = new PassThrough({
-      highWaterMark: 1024 * 1024 * 8, // 8MB buffer
+      highWaterMark: 1024 * 1024 * 16, // 16MB ultra-high-throughput buffer
     });
 
     child.stdout.pipe(passThrough);

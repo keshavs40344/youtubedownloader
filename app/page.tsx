@@ -21,14 +21,12 @@ import {
   Trash2,
   Maximize2,
   Minimize2,
-  HelpCircle,
   ChevronDown,
   ShieldCheck,
   Zap,
   Tag,
   QrCode,
   X,
-  Layers,
   ArrowRight,
   Eye,
   ThumbsUp,
@@ -37,9 +35,9 @@ import {
   CheckSquare,
   Square,
   FileAudio,
-  Radio,
-  Sliders,
-  Tv,
+  CheckCircle2,
+  Loader2,
+  HardDriveDownload,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 
@@ -111,6 +109,12 @@ interface HistoryItem {
   url: string;
   timestamp: string;
   type: "video" | "playlist";
+}
+
+interface ActiveDownload {
+  title: string;
+  quality: string;
+  timestamp: number;
 }
 
 const FAQ_LIST = [
@@ -187,6 +191,7 @@ export default function Home() {
 
   const [activeTab, setActiveTab] = useState<"video" | "audio" | "subtitles" | "thumbnails" | "preview">("video");
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [activeDownloads, setActiveDownloads] = useState<ActiveDownload[]>([]);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedTags, setCopiedTags] = useState(false);
   const [theaterMode, setTheaterMode] = useState(false);
@@ -196,7 +201,6 @@ export default function Home() {
   const [showQrModal, setShowQrModal] = useState(false);
   const [showTagsModal, setShowTagsModal] = useState(false);
   const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
-  const [showTermsModal, setShowTermsModal] = useState(false);
 
   // Playlist Batch Selection
   const [selectedPlaylistTracks, setSelectedPlaylistTracks] = useState<string[]>([]);
@@ -271,7 +275,7 @@ export default function Home() {
     setToastMessage({ text, type });
     setTimeout(() => {
       setToastMessage(null);
-    }, 3600);
+    }, 4000);
   };
 
   const handlePasteClipboard = async () => {
@@ -367,6 +371,15 @@ export default function Home() {
     playSfx("download");
     setDownloadingId(trackingKey);
 
+    const qualityLabel = height ? `${height}p` : ext.toUpperCase();
+    const newDownload: ActiveDownload = {
+      title: title || "YouTube Video",
+      quality: qualityLabel,
+      timestamp: Date.now(),
+    };
+
+    setActiveDownloads((prev) => [newDownload, ...prev.slice(0, 2)]);
+
     const queryParams = new URLSearchParams({
       url: targetUrl,
       format_id: formatId,
@@ -389,17 +402,21 @@ export default function Home() {
 
     try {
       confetti({
-        particleCount: 45,
-        spread: 60,
+        particleCount: 50,
+        spread: 65,
         origin: { y: 0.85 },
       });
     } catch {}
 
-    showToast("Starting download in browser...", "success");
+    showToast(`✓ Download Started! Streaming "${title.substring(0, 30)}..." to your device`, "success");
 
     setTimeout(() => {
       setDownloadingId(null);
-    }, 2800);
+    }, 3500);
+
+    setTimeout(() => {
+      setActiveDownloads((prev) => prev.filter((d) => d.timestamp !== newDownload.timestamp));
+    }, 7000);
   };
 
   const triggerSubtitleDownload = (lang: string, format: "srt" | "vtt") => {
@@ -421,7 +438,7 @@ export default function Home() {
     anchor.click();
     document.body.removeChild(anchor);
 
-    showToast(`Downloading ${lang.toUpperCase()} subtitles (.${format})...`, "success");
+    showToast(`✓ Subtitles Download Started: ${lang.toUpperCase()} (.${format})`, "success");
   };
 
   const togglePlaylistTrack = (id: string) => {
@@ -445,7 +462,7 @@ export default function Home() {
     if (!mediaData?.playlistInfo || selectedPlaylistTracks.length === 0) return;
     setBatchDownloading(true);
     playSfx("download");
-    showToast(`Queuing ${selectedPlaylistTracks.length} downloads...`, "info");
+    showToast(`✓ Batch Download Started: Queuing ${selectedPlaylistTracks.length} items...`, "info");
 
     const selectedItems = mediaData.playlistInfo.items.filter((item) =>
       selectedPlaylistTracks.includes(item.id)
@@ -475,7 +492,7 @@ export default function Home() {
     }
 
     setBatchDownloading(false);
-    showToast(`All ${selectedItems.length} downloads triggered!`, "success");
+    showToast(`✓ All ${selectedItems.length} tracks queued for download!`, "success");
   };
 
   const bestVideoFormat = mediaData?.videoInfo?.videoFormats?.[0];
@@ -490,6 +507,53 @@ export default function Home() {
         <div className="absolute top-1/2 -right-32 w-[550px] h-[550px] bg-cyan-500/10 rounded-full blur-[180px]" />
         <div className="absolute -bottom-40 left-1/4 w-[600px] h-[600px] bg-purple-600/10 rounded-full blur-[180px]" />
       </div>
+
+      {/* Floating Active Downloads Indicator Panel */}
+      <AnimatePresence>
+        {activeDownloads.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 50, scale: 0.95 }}
+            className="fixed bottom-6 left-6 z-50 max-w-sm w-full glass-card p-4 rounded-2xl border border-emerald-500/30 shadow-2xl bg-[#07090e]/95 backdrop-blur-xl"
+          >
+            <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Download Started</span>
+              </div>
+              <span className="text-[10px] text-slate-400 font-mono">Check Browser Downloads</span>
+            </div>
+
+            <div className="space-y-2">
+              {activeDownloads.map((d) => (
+                <div key={d.timestamp} className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 truncate pr-2">
+                    <HardDriveDownload className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    <span className="font-semibold text-white truncate">{d.title}</span>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-white/10 text-slate-200 shrink-0">
+                    {d.quality}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Animated Loading Bar */}
+            <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden mt-3">
+              <motion.div
+                initial={{ x: "-100%" }}
+                animate={{ x: "100%" }}
+                transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
+                className="w-1/2 h-full bg-gradient-to-r from-emerald-500 to-cyan-400 rounded-full"
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Floating Toast Notification */}
       <AnimatePresence>
@@ -510,7 +574,7 @@ export default function Home() {
             {toastMessage.type === "error" ? (
               <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
             ) : toastMessage.type === "success" ? (
-              <Check className="w-4 h-4 text-emerald-400" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
             ) : (
               <Sparkles className="w-4 h-4 text-indigo-400" />
             )}
@@ -572,7 +636,7 @@ export default function Home() {
         {/* Hero Header */}
         <div className="text-center mb-8 max-w-2xl mx-auto">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 mb-4 shadow-sm">
-            <Zap className="w-3.5 h-3.5 text-cyan-400" /> Fast YouTube Video & Playlist Downloader
+            <Zap className="w-3.5 h-3.5 text-cyan-400" /> Ultra-Fast YouTube Video & Playlist Downloader
           </div>
           <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
             Download YouTube Videos & Playlists in <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-sky-300 to-cyan-400">Original Quality</span>
@@ -716,8 +780,12 @@ export default function Home() {
                     disabled={downloadingId === "quick_vid"}
                     className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-600/30 transition disabled:opacity-50"
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Best Video ({bestVideoFormat.quality})</span>
+                    {downloadingId === "quick_vid" ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5" />
+                    )}
+                    <span>{downloadingId === "quick_vid" ? "Starting Download..." : `Best Video (${bestVideoFormat.quality})`}</span>
                   </button>
                 )}
 
@@ -735,8 +803,12 @@ export default function Home() {
                     disabled={downloadingId === "quick_aud"}
                     className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-600/30 transition disabled:opacity-50"
                   >
-                    <FileAudio className="w-3.5 h-3.5" />
-                    <span>Best Audio ({bestAudioFormat.quality})</span>
+                    {downloadingId === "quick_aud" ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <FileAudio className="w-3.5 h-3.5" />
+                    )}
+                    <span>{downloadingId === "quick_aud" ? "Starting Download..." : `Best Audio (${bestAudioFormat.quality})`}</span>
                   </button>
                 )}
               </div>
@@ -977,10 +1049,17 @@ export default function Home() {
                                 )
                               }
                               disabled={downloadingId === `vid_${f.format_id}`}
-                              className="px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition disabled:opacity-50"
+                              className={`px-4 py-2 text-xs font-bold rounded-xl flex items-center gap-1.5 transition ${
+                                downloadingId === `vid_${f.format_id}`
+                                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/30"
+                                  : "bg-white/10 hover:bg-white/20 border border-white/20 text-white"
+                              }`}
                             >
                               {downloadingId === `vid_${f.format_id}` ? (
-                                <span>Starting...</span>
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  <span>Downloading...</span>
+                                </>
                               ) : (
                                 <>
                                   <Download className="w-3.5 h-3.5" />
@@ -1032,10 +1111,23 @@ export default function Home() {
                               )
                             }
                             disabled={downloadingId === `aud_${f.format_id}`}
-                            className="px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 text-xs font-bold rounded-xl flex items-center gap-1.5 transition disabled:opacity-50"
+                            className={`px-4 py-2 border text-xs font-bold rounded-xl flex items-center gap-1.5 transition ${
+                              downloadingId === `aud_${f.format_id}`
+                                ? "bg-emerald-600 text-white border-emerald-500"
+                                : "bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border-emerald-500/30"
+                            }`}
                           >
-                            <Download className="w-3.5 h-3.5" />
-                            <span>Download Audio</span>
+                            {downloadingId === `aud_${f.format_id}` ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <span>Downloading...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Download Audio</span>
+                              </>
+                            )}
                           </button>
                         </div>
                       ))

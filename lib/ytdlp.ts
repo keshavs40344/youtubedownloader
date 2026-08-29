@@ -50,6 +50,32 @@ export function getYtDlpRunner(): YtDlpRunner {
   };
 }
 
+export function getYtDlpDefaultArgs(): string[] {
+  const args = [
+    "--no-check-certificates",
+    "--extractor-args",
+    "youtube:player_client=android_creator,android_vr,android,ios,web_embedded;player_skip=configs",
+    "--socket-timeout",
+    "10",
+  ];
+
+  // Check if cookies are supplied via environment variable
+  const cookiesEnv = process.env.YOUTUBE_COOKIES || process.env.COOKIES_TXT;
+  const isWin = process.platform === "win32";
+  const cookiesFile = isWin ? path.join(process.cwd(), "cookies.txt") : "/tmp/cookies.txt";
+
+  if (cookiesEnv) {
+    try {
+      fs.writeFileSync(cookiesFile, cookiesEnv.trim(), "utf-8");
+      args.push("--cookies", cookiesFile);
+    } catch {}
+  } else if (fs.existsSync(cookiesFile)) {
+    args.push("--cookies", cookiesFile);
+  }
+
+  return args;
+}
+
 export function getFfmpegPath(): string | null {
   const isWin = process.platform === "win32";
 

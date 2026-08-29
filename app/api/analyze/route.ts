@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
-import { getYtDlpRunner } from "@/lib/ytdlp";
+import { getYtDlpRunner, getYtDlpDefaultArgs } from "@/lib/ytdlp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,6 +88,7 @@ function runYtDlpSafe(args: string[], timeoutMs: number = 18000): Promise<string
     let isSettled = false;
     let timer: NodeJS.Timeout | null = null;
     const runner = getYtDlpRunner();
+    const defaultArgs = getYtDlpDefaultArgs();
 
     const process = spawn(
       runner.command,
@@ -97,11 +98,7 @@ function runYtDlpSafe(args: string[], timeoutMs: number = 18000): Promise<string
         "node",
         "--remote-components",
         "ejs:github",
-        "--extractor-args",
-        "youtube:player_client=web_embedded,mweb",
-        "--no-check-certificates",
-        "--socket-timeout",
-        "8",
+        ...defaultArgs,
         ...args,
       ],
       {

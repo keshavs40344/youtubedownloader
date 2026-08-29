@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
 import { PassThrough } from "stream";
-import { getYtDlpRunner, getFfmpegPath } from "@/lib/ytdlp";
+import { getYtDlpRunner, getFfmpegPath, getYtDlpDefaultArgs } from "@/lib/ytdlp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -95,15 +95,15 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const defaultArgs = getYtDlpDefaultArgs();
+
     const args = [
       ...runner.prefixArgs,
       "--js-runtimes",
       "node",
       "--remote-components",
       "ejs:github",
-      "--extractor-args",
-      "youtube:player_client=web_embedded,mweb",
-      "--no-check-certificates",
+      ...defaultArgs,
       "--concurrent-fragments",
       "8",
       "--buffer-size",

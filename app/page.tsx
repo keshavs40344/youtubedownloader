@@ -54,6 +54,7 @@ import {
 import confetti from "canvas-confetti";
 import AdBanner from "../components/AdBanner";
 import VideoAdModal from "../components/VideoAdModal";
+import LegalModals from "../components/LegalModals";
 import { ADS_CONFIG } from "../config/ads";
 
 interface VideoFormat {
@@ -235,6 +236,7 @@ export default function Home() {
   const [showTagsModal, setShowTagsModal] = useState(false);
   const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
   const [showVideoAdModal, setShowVideoAdModal] = useState(false);
+  const [activeLegalModal, setActiveLegalModal] = useState<"privacy" | "terms" | "dmca" | "contact" | null>(null);
   const [pendingDownloadData, setPendingDownloadData] = useState<{
     targetUrl: string;
     formatId: string;
@@ -1847,18 +1849,59 @@ export default function Home() {
         }}
       />
 
-      {/* Footer */}
+      {/* Legal & Compliance Modals (Monetag / AdSense / DMCA Approval) */}
+      <LegalModals
+        type={activeLegalModal}
+        onClose={() => setActiveLegalModal(null)}
+      />
+
+      {/* Footer with Compliance & Ad Network Verification Links */}
       <footer className="border-t border-white/10 py-10 bg-[#07090e]/95 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
-          <p>© 2026 YouTube Downloader • Free Online Video & Playlist Converter</p>
-          <div className="flex items-center gap-4 text-slate-400 font-medium">
-            <span>MP4 4K / 1080p Video</span>
+        <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between text-xs text-slate-500 gap-4">
+          <div>
+            <p>© 2026 YouTube Video & Playlist Downloader • All Rights Reserved</p>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-4 text-slate-400 font-medium">
+            <button
+              onClick={() => {
+                playSfx("click");
+                setActiveLegalModal("privacy");
+              }}
+              className="hover:text-indigo-400 transition"
+            >
+              Privacy Policy
+            </button>
             <span>•</span>
-            <span>M4A / MP3 Audio</span>
+            <button
+              onClick={() => {
+                playSfx("click");
+                setActiveLegalModal("terms");
+              }}
+              className="hover:text-indigo-400 transition"
+            >
+              Terms of Service
+            </button>
             <span>•</span>
-            <span>Subtitles</span>
+            <button
+              onClick={() => {
+                playSfx("click");
+                setActiveLegalModal("dmca");
+              }}
+              className="hover:text-indigo-400 transition"
+            >
+              DMCA Disclaimer
+            </button>
             <span>•</span>
-            <span>No Ads</span>
+            <button
+              onClick={() => {
+                playSfx("click");
+                setActiveLegalModal("contact");
+              }}
+              className="hover:text-indigo-400 transition"
+            >
+              Contact Support
+            </button>
           </div>
         </div>
       </footer>

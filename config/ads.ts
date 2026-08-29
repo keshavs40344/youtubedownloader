@@ -16,13 +16,14 @@ export const ADS_CONFIG = {
     midBannerSlot: "0987654321",
   },
 
-  // 2. Adsterra Banner Ads (Configured & Live!)
+  // 2. Adsterra Banner Ads (Live & Active)
   bannerAds: {
     enabled: true,
-    adsterraKey: "195416b77922cf11007bab28049eeb7c", // Your active Adsterra 728x90 Key
+    adsterraKey: "195416b77922cf11007bab28049eeb7c",
+    directSmartLink: "https://www.profitableratecpmnetwork.com/qtx3sxjtx?key=4ea413594b87a8516acfaaa164e7b15f",
   },
 
-  // 3. High-CPM Video Ads / Interstitial Modal (Plays when user clicks Download)
+  // 3. High-CPM Video Ads & SmartLink Triggers (Live & Active)
   videoAds: {
     enabled: true,
     countdownSeconds: 5,
@@ -33,8 +34,8 @@ export const ADS_CONFIG = {
     directVideoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
     customVideoHtml: "",
 
-    // Sponsor Link (Paste your Adsterra Direct SmartLink here when ready)
-    sponsorLink: "https://www.highrevenueformat.com/195416b77922cf11007bab28049eeb7c/invoke.js",
+    // High CPM Adsterra Direct SmartLink
+    sponsorLink: "https://www.profitableratecpmnetwork.com/qtx3sxjtx?key=4ea413594b87a8516acfaaa164e7b15f",
     sponsorButtonText: "Visit Sponsor Website",
     openSponsorOnDownload: true,
   },

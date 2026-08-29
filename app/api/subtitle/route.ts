@@ -8,32 +8,71 @@ export const maxDuration = 60;
 function sanitizeFilename(name: string): string {
   return (
     name
-      .replace(/[/\\?%*:|"<>]/g, "")
+      .replace(/[\r\n\t\0]/g, "")
+      .replace(/[/\\?%*:|"<>#]/g, "")
       .replace(/\s+/g, " ")
       .trim()
-      .substring(0, 100) || "subtitles"
+      .substring(0, 80) || "subtitles"
   );
+}
+
+function isValidYouTubeUrl(rawUrl: string): boolean {
+  if (!rawUrl || typeof rawUrl !== "string") return false;
+  const trimmed = rawUrl.trim();
+  if (trimmed.startsWith("-")) return false;
+
+  try {
+    let toParse = trimmed;
+    if (!toParse.startsWith("http://") && !toParse.startsWith("https://")) {
+      toParse = `https://${toParse}`;
+    }
+    const parsed = new URL(toParse);
+    const host = parsed.hostname.toLowerCase();
+
+    return (
+      host === "youtube.com" ||
+      host === "www.youtube.com" ||
+      host === "m.youtube.com" ||
+      host === "music.youtube.com" ||
+      host === "youtu.be" ||
+      host === "www.youtube-nocookie.com"
+    );
+  } catch {
+    return false;
+  }
 }
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const url = searchParams.get("url");
-  const lang = searchParams.get("lang") || "en";
-  const format = searchParams.get("format") || "vtt";
+  const rawUrl = searchParams.get("url");
+  const rawLang = searchParams.get("lang") || "en";
+  const rawFormat = searchParams.get("format") || "vtt";
   const rawTitle = searchParams.get("title") || "subtitles";
 
-  if (!url) {
-    return new NextResponse("Video URL is required.", { status: 400 });
+  if (!rawUrl || !isValidYouTubeUrl(rawUrl)) {
+    return new NextResponse("Invalid or unsupported YouTube URL.", { status: 400 });
   }
 
-  try {
-    const filename = `${sanitizeFilename(rawTitle)}_${lang}.${format}`;
+  const lang = /^[a-zA-Z0-9_-]{1,12}$/.test(rawLang) ? rawLang : "en";
+  const format = /^(vtt|srt)$/.test(rawFormat) ? rawFormat : "vtt";
+  const filename = `${sanitizeFilename(rawTitle)}_${lang}.${format}`;
 
-    // Extract subtitle URL from yt-dlp metadata
+  try {
     const child = spawn(
       "python",
-      ["-m", "yt_dlp", "--js-runtimes", "node", "-j", "--no-warnings", "--skip-download", url],
-      { windowsHide: true }
+      [
+        "-m",
+        "yt_dlp",
+        "--js-runtimes",
+        "node",
+        "--no-check-certificates",
+        "-j",
+        "--no-warnings",
+        "--skip-download",
+        "--",
+        rawUrl.trim(),
+      ],
+      { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }
     );
 
     let stdout = "";
@@ -41,8 +80,8 @@ export async function GET(req: NextRequest) {
 
     await new Promise((resolve, reject) => {
       child.on("close", (code) => {
-        if (code === 0) resolve(true);
-        else reject(new Error(`yt-dlp exited with code ${code}`));
+        if (code === 0 && stdout.trim()) resolve(true);
+        else reject(new Error(`yt-dlp exited with status ${code}`));
       });
       child.on("error", reject);
     });
@@ -59,6 +98,10 @@ export async function GET(req: NextRequest) {
       subs.find((s: any) => s.ext === "vtt") ||
       subs[0];
 
+    if (!matchedFormat?.url) {
+      return new NextResponse("Subtitle stream unavailable.", { status: 404 });
+    }
+
     const subResponse = await fetch(matchedFormat.url);
     const subText = await subResponse.text();
 
@@ -74,7 +117,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error: any) {
-    console.error("Subtitle route error:", error);
+    console.error("Subtitle route error handled:", error.message);
     return new NextResponse(
       `Subtitle Error: ${error.message || "Failed to fetch subtitles."}`,
       { status: 500 }

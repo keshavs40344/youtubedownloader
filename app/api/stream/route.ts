@@ -8,7 +8,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// Track active streaming processes to prevent CPU/RAM saturation
 let activeStreamsCount = 0;
 const MAX_CONCURRENT_STREAMS = 25;
 
@@ -28,48 +27,80 @@ function getFfmpegPath(): string | null {
   return null;
 }
 
+// Strict filename sanitization (eliminates CRLF / header injection risks)
 function sanitizeFilename(name: string): string {
-  return (
-    name
-      .replace(/[/\\?%*:|"<>]/g, "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .substring(0, 100) || "video"
-  );
+  const clean = name
+    .replace(/[\r\n\t\0]/g, "")
+    .replace(/[/\\?%*:|"<>#]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return clean.substring(0, 80) || "video";
+}
+
+// Strict URL validation to prevent SSRF and argument injection
+function isValidYouTubeUrl(rawUrl: string): boolean {
+  if (!rawUrl || typeof rawUrl !== "string") return false;
+  const trimmed = rawUrl.trim();
+  if (trimmed.startsWith("-")) return false; // Prevent CLI flag injection
+
+  try {
+    let toParse = trimmed;
+    if (!toParse.startsWith("http://") && !toParse.startsWith("https://")) {
+      toParse = `https://${toParse}`;
+    }
+    const parsed = new URL(toParse);
+    const host = parsed.hostname.toLowerCase();
+
+    return (
+      host === "youtube.com" ||
+      host === "www.youtube.com" ||
+      host === "m.youtube.com" ||
+      host === "music.youtube.com" ||
+      host === "youtu.be" ||
+      host === "www.youtube-nocookie.com"
+    );
+  } catch {
+    return false;
+  }
 }
 
 export async function GET(req: NextRequest) {
-  // If server is under extreme concurrent load, reject gracefully instead of crashing
   if (activeStreamsCount >= MAX_CONCURRENT_STREAMS) {
-    return new NextResponse("Server is currently handling maximum concurrent downloads. Please retry in 10 seconds.", {
+    return new NextResponse("Server is under heavy load. Please retry in a few moments.", {
       status: 429,
       headers: { "Retry-After": "10" },
     });
   }
 
   const { searchParams } = new URL(req.url);
-  const url = searchParams.get("url");
-  const formatId = searchParams.get("format_id") || searchParams.get("itag") || "18";
-  const height = searchParams.get("height") || "";
-  const ext = (searchParams.get("ext") || "mp4").toLowerCase();
+  const rawUrl = searchParams.get("url");
+  const rawFormatId = searchParams.get("format_id") || searchParams.get("itag") || "18";
+  const rawHeight = searchParams.get("height") || "";
+  const rawExt = (searchParams.get("ext") || "mp4").toLowerCase();
   const rawTitle = searchParams.get("title") || "video";
 
-  if (!url) {
-    return new NextResponse("Video URL is required.", { status: 400 });
+  // 1. Validate URL
+  if (!rawUrl || !isValidYouTubeUrl(rawUrl)) {
+    return new NextResponse("Invalid or unsupported YouTube URL.", { status: 400 });
   }
+
+  // 2. Validate parameters against strict whitelists
+  const formatId = /^[a-zA-Z0-9_+.-]{1,30}$/.test(rawFormatId) ? rawFormatId : "18";
+  const height = /^[0-9]{1,5}$/.test(rawHeight) ? rawHeight : "";
+  const ext = /^(mp4|m4a|webm|opus|mp3)$/.test(rawExt) ? rawExt : "mp4";
+  const filename = `${sanitizeFilename(rawTitle)}.${ext}`;
 
   try {
     activeStreamsCount++;
-    const filename = `${sanitizeFilename(rawTitle)}.${ext}`;
     const ffmpegPath = getFfmpegPath();
 
     let formatSelector = formatId;
-    const isVideo = ext === "mp4" || ext === "webm" || ext === "mkv";
+    const isVideo = ext === "mp4" || ext === "webm";
 
     if (isVideo) {
       if (formatId === "18") {
         formatSelector = "18/best[ext=mp4]/best";
-      } else if (formatId === "best" || !formatId) {
+      } else if (formatId === "best") {
         formatSelector = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best";
       } else if (height) {
         formatSelector = `bestvideo[height<=${height}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${height}]+bestaudio/best[height<=${height}]/best`;
@@ -77,7 +108,7 @@ export async function GET(req: NextRequest) {
         formatSelector = `${formatId}+bestaudio[ext=m4a]/${formatId}+bestaudio/best`;
       }
     } else {
-      if (formatId === "bestaudio" || !formatId) {
+      if (formatId === "bestaudio") {
         formatSelector = ext === "m4a" ? "bestaudio[ext=m4a]/bestaudio/best" : "bestaudio/best";
       } else {
         formatSelector = `${formatId}/bestaudio/best`;
@@ -117,7 +148,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    args.push("-o", "-", url);
+    // Pass "--" before URL to guarantee positional parameter safety against flag injection
+    args.push("-o", "-", "--", rawUrl.trim());
 
     const child = spawn("python", args, {
       windowsHide: true,
@@ -125,7 +157,7 @@ export async function GET(req: NextRequest) {
     });
 
     const passThrough = new PassThrough({
-      highWaterMark: 1024 * 1024 * 16, // 16MB buffer
+      highWaterMark: 1024 * 1024 * 16,
     });
 
     let isStreamClosed = false;
@@ -145,7 +177,7 @@ export async function GET(req: NextRequest) {
     child.stderr.on("data", (data) => {
       const msg = data.toString();
       if (msg.includes("ERROR:")) {
-        console.warn("Stream stderr:", msg.trim());
+        console.warn("Stream log:", msg.trim());
       }
     });
 
@@ -159,7 +191,6 @@ export async function GET(req: NextRequest) {
       cleanupProcess();
     });
 
-    // Abort signal from client disconnecting
     req.signal.addEventListener("abort", () => {
       cleanupProcess();
       passThrough.destroy();

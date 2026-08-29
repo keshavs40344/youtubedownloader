@@ -130,6 +130,12 @@
                     <span class="font-extrabold text-lg tracking-tight text-white">VORTEX<span class="text-indigo-400">.STREAM</span></span>
                 </div>
             </div>
+            <div class="flex items-center gap-3">
+                <button onclick="toggleAudioFx()" id="audioBtn" class="px-3 py-1.5 rounded-xl border border-white/10 bg-slate-900/60 hover:bg-slate-800 text-xs font-semibold text-slate-300 flex items-center gap-2 transition">
+                    <i data-lucide="volume-2" id="audioIcon" class="w-4 h-4 text-cyan-400"></i>
+                    <span id="audioLabel">Sound ON</span>
+                </button>
+            </div>
         </div>
     </header>
 
@@ -145,7 +151,7 @@
                 Download YouTube in <span class="shimmer-text">Full Quality</span>.
             </h1>
             <p class="mt-3 text-slate-400 text-sm sm:text-base">
-                Convert and download MP4 video and audio streams directly with zero advertisements.
+                Convert and download MP4 video, lossless M4A audio, subtitles, and HD thumbnail covers directly.
             </p>
         </div>
 
@@ -154,8 +160,9 @@
             <div class="flex flex-col sm:flex-row gap-2">
                 <div class="flex items-center flex-1 bg-[#07090e]/90 rounded-xl px-4 py-3 border border-white/5 focus-within:border-indigo-500 transition">
                     <i data-lucide="link-2" class="w-5 h-5 text-slate-500 mr-3 shrink-0"></i>
-                    <input type="text" id="urlInput" placeholder="Paste YouTube Video URL..."
-                        class="w-full bg-transparent text-sm text-white placeholder-slate-500 outline-none font-medium">
+                    <input type="text" id="urlInput" placeholder="Paste YouTube Video or Playlist URL..."
+                        class="w-full bg-transparent text-sm text-white placeholder-slate-500 outline-none font-medium"
+                        onkeydown="if(event.key==='Enter') analyzeLink()">
                     <button onclick="pasteClipboard()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 border border-white/10 rounded-lg text-[11px] font-medium text-slate-300 flex items-center gap-1.5 transition shrink-0 ml-1">
                         <i data-lucide="clipboard" class="w-3.5 h-3.5 text-cyan-400"></i>
                         <span>Paste</span>
@@ -207,36 +214,56 @@
                     </div>
 
                     <div class="space-y-2 text-xs text-slate-400 bg-[#07090e]/80 p-3.5 rounded-xl border border-white/5">
-                        <div class="flex items-center gap-2 text-slate-200 font-medium truncate">
-                            <i data-lucide="user" class="w-3.5 h-3.5 text-indigo-400 shrink-0"></i>
-                            <span id="videoAuthor" class="truncate"></span>
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2 text-slate-200 font-medium truncate">
+                                <i data-lucide="user" class="w-3.5 h-3.5 text-indigo-400 shrink-0"></i>
+                                <span id="videoAuthor" class="truncate"></span>
+                            </div>
+                            <span id="videoSubscribers" class="text-[10px] text-indigo-300 font-mono bg-indigo-500/10 px-2 py-0.5 rounded-md border border-indigo-500/20"></span>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <i data-lucide="eye" class="w-3.5 h-3.5 text-cyan-400 shrink-0"></i>
-                            <span id="videoViews"></span>
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="eye" class="w-3.5 h-3.5 text-cyan-400 shrink-0"></i>
+                                <span id="videoViews"></span>
+                            </div>
+                            <span id="videoLikes" class="text-[10px] text-slate-400 font-mono"></span>
                         </div>
                     </div>
                 </div>
 
-                <!-- Stream Tracks Selector -->
+                <!-- Stream Tracks Selector with Tabs -->
                 <div class="md:col-span-7 flex flex-col justify-between">
                     <div>
                         <h2 id="videoTitle" class="text-base sm:text-lg font-bold text-white mb-4 line-clamp-2 leading-snug"></h2>
 
-                        <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-3">Available Video Formats</label>
-
-                        <div id="formatsGrid" class="space-y-2.5 mb-4 max-h-60 overflow-y-auto pr-1"></div>
-
-                        <div class="pt-3 border-t border-white/10">
-                            <button onclick="startDownload('mp3', 0)"
-                                class="w-full py-3.5 px-4 glass-card bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold flex items-center justify-between transition-all group">
-                                <span class="flex items-center gap-2">
-                                    <i data-lucide="music" class="w-4 h-4 text-emerald-400 group-hover:rotate-12 transition-transform"></i>
-                                    Download Audio Track (M4A / MP3)
-                                </span>
-                                <i data-lucide="download" class="w-4 h-4 text-emerald-400"></i>
+                        <!-- Feature Tabs -->
+                        <div class="flex items-center gap-1.5 p-1 bg-slate-900/80 border border-white/5 rounded-xl mb-4 overflow-x-auto">
+                            <button onclick="switchTab('video')" id="tabBtn-video" class="px-3 py-1.5 rounded-lg text-xs font-bold transition bg-indigo-600 text-white shadow-sm flex items-center gap-1.5 shrink-0">
+                                <i data-lucide="video" class="w-3.5 h-3.5"></i> Video
+                            </button>
+                            <button onclick="switchTab('audio')" id="tabBtn-audio" class="px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white flex items-center gap-1.5 shrink-0">
+                                <i data-lucide="music" class="w-3.5 h-3.5"></i> Audio
+                            </button>
+                            <button onclick="switchTab('subtitles')" id="tabBtn-subtitles" class="px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white flex items-center gap-1.5 shrink-0">
+                                <i data-lucide="file-text" class="w-3.5 h-3.5"></i> Subtitles
+                            </button>
+                            <button onclick="switchTab('covers')" id="tabBtn-covers" class="px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white flex items-center gap-1.5 shrink-0">
+                                <i data-lucide="image" class="w-3.5 h-3.5"></i> Covers
                             </button>
                         </div>
+
+                        <!-- Tab 1: Video Formats -->
+                        <div id="tab-video" class="space-y-2.5 mb-4 max-h-60 overflow-y-auto pr-1"></div>
+
+                        <!-- Tab 2: Audio Formats -->
+                        <div id="tab-audio" class="hidden space-y-2.5 mb-4 max-h-60 overflow-y-auto pr-1"></div>
+
+                        <!-- Tab 3: Subtitles -->
+                        <div id="tab-subtitles" class="hidden space-y-2.5 mb-4 max-h-60 overflow-y-auto pr-1"></div>
+
+                        <!-- Tab 4: Covers -->
+                        <div id="tab-covers" class="hidden space-y-2.5 mb-4 max-h-60 overflow-y-auto pr-1"></div>
+
                     </div>
                 </div>
             </div>
@@ -288,6 +315,8 @@
                 <span>•</span>
                 <span>Lossless Audio</span>
                 <span>•</span>
+                <span>Subtitles (.srt / .vtt)</span>
+                <span>•</span>
                 <span>No Advertisements</span>
             </div>
         </div>
@@ -296,6 +325,35 @@
     <script>
         lucide.createIcons();
         let activeUrl = '';
+        let activeVideoData = null;
+        let soundEnabled = true;
+
+        // Audio synthesizer for tactile clicks
+        function playChime(freq = 580) {
+            if (!soundEnabled) return;
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(freq * 1.5, ctx.currentTime + 0.12);
+                gain.gain.setValueAtTime(0.08, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.15);
+            } catch (e) {}
+        }
+
+        function toggleAudioFx() {
+            soundEnabled = !soundEnabled;
+            document.getElementById('audioLabel').innerText = soundEnabled ? 'Sound ON' : 'Sound OFF';
+            document.getElementById('audioIcon').setAttribute('data-lucide', soundEnabled ? 'volume-2' : 'volume-x');
+            lucide.createIcons();
+            showToast(soundEnabled ? 'Sound effects enabled' : 'Sound effects muted', 'info');
+        }
 
         function showToast(message, type = 'info') {
             const container = document.getElementById('toast-container');
@@ -343,6 +401,33 @@
             analyzeLink();
         }
 
+        function switchTab(tab) {
+            playChime(650);
+            ['video', 'audio', 'subtitles', 'covers'].forEach(t => {
+                const el = document.getElementById(`tab-${t}`);
+                const btn = document.getElementById(`tabBtn-${t}`);
+                if (t === tab) {
+                    el.classList.remove('hidden');
+                    btn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition bg-indigo-600 text-white shadow-sm flex items-center gap-1.5 shrink-0";
+                } else {
+                    el.classList.add('hidden');
+                    btn.className = "px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white flex items-center gap-1.5 shrink-0";
+                }
+            });
+            lucide.createIcons();
+        }
+
+        function triggerConfetti() {
+            playChime(880);
+            if (typeof confetti === 'function') {
+                confetti({
+                    particleCount: 50,
+                    spread: 60,
+                    origin: { y: 0.85 }
+                });
+            }
+        }
+
         async function analyzeLink() {
             const url = document.getElementById('urlInput').value.trim();
             if (!url) return showToast("Please paste a valid YouTube video URL.", "error");
@@ -369,18 +454,21 @@
                 const data = await res.json();
 
                 if (data.success && data.videoInfo) {
+                    activeVideoData = data.videoInfo;
                     document.getElementById('videoTitle').innerText = data.videoInfo.title;
                     document.getElementById('videoThumb').src = data.videoInfo.thumbnail;
                     document.getElementById('videoAuthor').innerText = data.videoInfo.author;
                     document.getElementById('videoDuration').innerText = data.videoInfo.duration;
                     document.getElementById('videoViews').innerText = `${data.videoInfo.views} Views`;
+                    document.getElementById('videoSubscribers').innerText = data.videoInfo.subscribers || 'Creator';
+                    document.getElementById('videoLikes').innerText = data.videoInfo.likes || '';
 
-                    const grid = document.getElementById('formatsGrid');
-                    grid.innerHTML = '';
-
+                    // 1. Populate Video Formats Tab
+                    const videoGrid = document.getElementById('tab-video');
+                    videoGrid.innerHTML = '';
                     data.videoInfo.videoFormats.forEach(f => {
                         const card = document.createElement('div');
-                        card.className = "p-3 bg-[#07090e]/90 border border-white/5 rounded-xl flex items-center justify-between";
+                        card.className = "p-3 bg-[#07090e]/90 border border-white/5 rounded-xl flex items-center justify-between hover:border-indigo-500/30 transition";
                         card.innerHTML = `
                             <div>
                                 <div class="text-xs font-bold text-white flex items-center gap-1.5">
@@ -390,17 +478,90 @@
                                 <div class="text-[10px] text-slate-400 font-mono mt-0.5">${f.size} • ${f.description}</div>
                             </div>
                             <a href="/api/stream?url=${encodeURIComponent(activeUrl)}&format_id=${f.format_id}&ext=${f.container}&title=${encodeURIComponent(data.videoInfo.title)}" 
-                               download 
+                               onclick="triggerConfetti()"
                                class="px-3.5 py-1.5 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5">
                                 <i data-lucide="download" class="w-3.5 h-3.5"></i>
                                 <span>Download</span>
                             </a>
                         `;
-                        grid.appendChild(card);
+                        videoGrid.appendChild(card);
+                    });
+
+                    // 2. Populate Audio Formats Tab
+                    const audioGrid = document.getElementById('tab-audio');
+                    audioGrid.innerHTML = '';
+                    data.videoInfo.audioFormats.forEach(a => {
+                        const card = document.createElement('div');
+                        card.className = "p-3 bg-[#07090e]/90 border border-white/5 rounded-xl flex items-center justify-between hover:border-emerald-500/30 transition";
+                        card.innerHTML = `
+                            <div>
+                                <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                                    <i data-lucide="music" class="w-3.5 h-3.5 text-emerald-400"></i>
+                                    ${a.quality} (${a.container.toUpperCase()})
+                                </div>
+                                <div class="text-[10px] text-slate-400 font-mono mt-0.5">${a.size} • ${a.description}</div>
+                            </div>
+                            <a href="/api/stream?url=${encodeURIComponent(activeUrl)}&format_id=${a.format_id}&ext=${a.container}&title=${encodeURIComponent(data.videoInfo.title)}" 
+                               onclick="triggerConfetti()"
+                               class="px-3.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5">
+                                <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                                <span>Download</span>
+                            </a>
+                        `;
+                        audioGrid.appendChild(card);
+                    });
+
+                    // 3. Populate Subtitles Tab
+                    const subGrid = document.getElementById('tab-subtitles');
+                    subGrid.innerHTML = '';
+                    if (data.videoInfo.subtitles && data.videoInfo.subtitles.length > 0) {
+                        data.videoInfo.subtitles.forEach(s => {
+                            const card = document.createElement('div');
+                            card.className = "p-3 bg-[#07090e]/90 border border-white/5 rounded-xl flex items-center justify-between";
+                            card.innerHTML = `
+                                <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                                    <i data-lucide="file-text" class="w-3.5 h-3.5 text-cyan-400"></i>
+                                    ${s.name} Subtitles
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <a href="/api/subtitle?url=${encodeURIComponent(activeUrl)}&lang=${s.code}&format=srt&title=${encodeURIComponent(data.videoInfo.title)}" 
+                                       onclick="triggerConfetti()"
+                                       class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-lg text-xs font-semibold">.SRT</a>
+                                    <a href="/api/subtitle?url=${encodeURIComponent(activeUrl)}&lang=${s.code}&format=vtt&title=${encodeURIComponent(data.videoInfo.title)}" 
+                                       onclick="triggerConfetti()"
+                                       class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-indigo-300 rounded-lg text-xs font-semibold">.VTT</a>
+                                </div>
+                            `;
+                            subGrid.appendChild(card);
+                        });
+                    } else {
+                        subGrid.innerHTML = `<div class="text-xs text-slate-500 py-4 text-center">No closed captions available for this track.</div>`;
+                    }
+
+                    // 4. Populate Covers Tab
+                    const coverGrid = document.getElementById('tab-covers');
+                    coverGrid.innerHTML = '';
+                    (data.videoInfo.thumbnailList || [{ resolution: 'Full HD 1080p', url: data.videoInfo.thumbnail }]).forEach(c => {
+                        const card = document.createElement('div');
+                        card.className = "p-3 bg-[#07090e]/90 border border-white/5 rounded-xl flex items-center justify-between";
+                        card.innerHTML = `
+                            <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                                <i data-lucide="image" class="w-3.5 h-3.5 text-amber-400"></i>
+                                Cover Image (${c.resolution})
+                            </div>
+                            <a href="${c.url}" target="_blank" download="thumbnail.jpg"
+                               onclick="triggerConfetti()"
+                               class="px-3.5 py-1.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5">
+                                <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                                <span>Save Image</span>
+                            </a>
+                        `;
+                        coverGrid.appendChild(card);
                     });
 
                     skeleton.classList.add('hidden');
                     resultCard.classList.remove('hidden');
+                    switchTab('video');
                     lucide.createIcons();
                     showToast("Stream metadata parsed successfully!", "success");
                 } else {

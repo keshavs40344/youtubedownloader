@@ -2,8 +2,6 @@
  * ==============================================================================
  * ENTERPRISE PRODUCTION MEDIA ENGINE & EXTRACTOR CORE
  * ==============================================================================
- * Provides high-availability YouTube extraction with multi-client rotation,
- * automatic PO Token (Proof of Origin) emulation, and cookie management.
  */
 
 import path from "path";
@@ -53,12 +51,12 @@ export function getProductionExtractorArgs(): string[] {
     "5",
     "--fragment-retries",
     "5",
-    // Enterprise Multi-Client Strategy (Rotates across mobile and embedded clients)
+    // Enterprise TV & Web Creator Client Strategy (Bypasses bot challenges for Indian & educational content)
     "--extractor-args",
-    "youtube:player_client=android_creator,android_vr,android,ios,mweb,web_embedded;player_skip=configs,webpage",
+    "youtube:player_client=tv,web_creator,android_creator,mweb,android;player_skip=configs,webpage",
   ];
 
-  // Automated Cookie Integration (Reads from environment variable or local file)
+  // Automated Cookie Integration
   const cookiesEnv = process.env.YOUTUBE_COOKIES || process.env.COOKIES_TXT;
   const isWin = process.platform === "win32";
   const cookiesFile = isWin ? path.join(process.cwd(), "cookies.txt") : "/tmp/cookies.txt";

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
-import { PassThrough } from "stream";
-import { getYtDlpRunner, getFfmpegPath, getProductionExtractorArgs } from "@/lib/ytdlp";
+import path from "path";
+import fs from "fs";
+import { getYtDlpRunner, getFfmpegPath } from "@/lib/ytdlp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,9 +48,9 @@ function isValidYouTubeUrl(rawUrl: string): boolean {
 
 export async function GET(req: NextRequest) {
   if (activeStreamsCount >= MAX_CONCURRENT_STREAMS) {
-    return new NextResponse("Server is under heavy load. Please retry in a few moments.", {
+    return new NextResponse("Server is busy processing high-resolution streams. Please retry in 5 seconds.", {
       status: 429,
-      headers: { "Retry-After": "10" },
+      headers: { "Retry-After": "5" },
     });
   }
 
@@ -68,6 +69,15 @@ export async function GET(req: NextRequest) {
   const height = /^[0-9]{1,5}$/.test(rawHeight) ? rawHeight : "";
   const ext = /^(mp4|m4a|webm|opus|mp3)$/.test(rawExt) ? rawExt : "mp4";
   const filename = `${sanitizeFilename(rawTitle)}.${ext}`;
+
+  const isWin = process.platform === "win32";
+  const tempDir = isWin ? path.join(process.cwd(), "scratch") : "/tmp";
+  if (!fs.existsSync(tempDir)) {
+    try { fs.mkdirSync(tempDir, { recursive: true }); } catch {}
+  }
+
+  const uniqueId = `stream_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+  const tempFilePath = path.join(tempDir, `${uniqueId}.${ext}`);
 
   try {
     activeStreamsCount++;
@@ -95,15 +105,15 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const defaultArgs = getProductionExtractorArgs();
-
     const args = [
       ...runner.prefixArgs,
       "--js-runtimes",
       "node",
       "--remote-components",
       "ejs:github",
-      ...defaultArgs,
+      "--extractor-args",
+      "youtube:player_client=android_creator,android",
+      "--no-check-certificates",
       "--concurrent-fragments",
       "8",
       "--buffer-size",
@@ -127,79 +137,88 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    args.push("-o", "-", "--", rawUrl.trim());
+    // Check for cookies
+    const cookiesEnv = process.env.YOUTUBE_COOKIES || process.env.COOKIES_TXT;
+    const cookiesFile = isWin ? path.join(process.cwd(), "cookies.txt") : "/tmp/cookies.txt";
+    if (cookiesEnv) {
+      try {
+        if (!fs.existsSync(cookiesFile) || fs.readFileSync(cookiesFile, "utf-8") !== cookiesEnv.trim()) {
+          fs.writeFileSync(cookiesFile, cookiesEnv.trim(), "utf-8");
+        }
+        args.push("--cookies", cookiesFile);
+      } catch {}
+    } else if (fs.existsSync(cookiesFile)) {
+      args.push("--cookies", cookiesFile);
+    }
 
-    const child = spawn(runner.command, args, {
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
+    args.push("-o", tempFilePath, "--", rawUrl.trim());
+
+    // Execute download and muxing
+    await new Promise((resolve, reject) => {
+      const child = spawn(runner.command, args, {
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      let stderr = "";
+      child.stderr?.on("data", (d) => {
+        stderr += d.toString();
+      });
+
+      child.on("close", (code) => {
+        if (code === 0 && fs.existsSync(tempFilePath)) {
+          resolve(true);
+        } else {
+          reject(new Error(stderr || `yt-dlp exited with status ${code}`));
+        }
+      });
+
+      child.on("error", (err) => {
+        reject(err);
+      });
+
+      req.signal.addEventListener("abort", () => {
+        try { child.kill("SIGKILL"); } catch {}
+        try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
+      });
     });
 
-    const passThrough = new PassThrough({
-      highWaterMark: 1024 * 1024 * 16,
-    });
+    if (!fs.existsSync(tempFilePath)) {
+      throw new Error("Target file was not generated properly.");
+    }
 
-    let isStreamClosed = false;
+    const fileStat = fs.statSync(tempFilePath);
+    const nodeStream = fs.createReadStream(tempFilePath);
 
-    const cleanupProcess = () => {
-      if (!isStreamClosed) {
-        isStreamClosed = true;
-        activeStreamsCount = Math.max(0, activeStreamsCount - 1);
-        try {
-          child.kill("SIGKILL");
-        } catch {}
-      }
+    const cleanup = () => {
+      activeStreamsCount = Math.max(0, activeStreamsCount - 1);
+      try {
+        if (fs.existsSync(tempFilePath)) {
+          fs.unlinkSync(tempFilePath);
+        }
+      } catch {}
     };
 
-    child.stdout.pipe(passThrough);
-
-    child.stderr.on("data", (data) => {
-      const msg = data.toString();
-      if (msg.includes("ERROR:")) {
-        console.warn("Stream log:", msg.trim());
-      }
-    });
-
-    child.on("error", (err) => {
-      console.warn("Child process error caught safely:", err.message);
-      cleanupProcess();
-      passThrough.destroy();
-    });
-
-    child.on("close", () => {
-      cleanupProcess();
-    });
-
-    req.signal.addEventListener("abort", () => {
-      cleanupProcess();
-      passThrough.destroy();
-    });
-
-    const stream = new ReadableStream({
+    const webStream = new ReadableStream({
       start(controller) {
-        passThrough.on("data", (chunk) => {
+        nodeStream.on("data", (chunk) => {
           try {
             controller.enqueue(chunk);
           } catch {
-            cleanupProcess();
+            cleanup();
           }
         });
-
-        passThrough.on("end", () => {
-          cleanupProcess();
-          try {
-            controller.close();
-          } catch {}
+        nodeStream.on("end", () => {
+          cleanup();
+          try { controller.close(); } catch {}
         });
-
-        passThrough.on("error", (err) => {
-          cleanupProcess();
-          try {
-            controller.error(err);
-          } catch {}
+        nodeStream.on("error", (err) => {
+          cleanup();
+          try { controller.error(err); } catch {}
         });
       },
       cancel() {
-        cleanupProcess();
+        cleanup();
       },
     });
 
@@ -213,19 +232,23 @@ export async function GET(req: NextRequest) {
 
     const contentType = mimeTypes[ext] || "application/octet-stream";
 
-    return new NextResponse(stream, {
+    return new NextResponse(webStream, {
       headers: {
         "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
         "Content-Type": contentType,
+        "Content-Length": fileStat.size.toString(),
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Transfer-Encoding": "chunked",
       },
     });
   } catch (error: any) {
     activeStreamsCount = Math.max(0, activeStreamsCount - 1);
+    try {
+      if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+    } catch {}
+
     console.error("Stream route handled error:", error.message);
     return new NextResponse(
-      `Download Error: ${error.message || "Failed to initialize stream. Please try again."}`,
+      `Download Error: ${error.message || "Failed to download stream."}`,
       { status: 500 }
     );
   }

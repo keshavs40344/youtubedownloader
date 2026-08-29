@@ -52,6 +52,7 @@ import {
   Info,
 } from "lucide-react";
 import confetti from "canvas-confetti";
+import AdBanner from "../components/AdBanner";
 
 interface VideoFormat {
   format_id: string;
@@ -727,7 +728,7 @@ export default function Home() {
         </div>
 
         {/* Quick Sample Links */}
-        <div className="flex flex-wrap items-center justify-center gap-2 mb-10 text-xs text-slate-400">
+        <div className="flex flex-wrap items-center justify-center gap-2 mb-6 text-xs text-slate-400">
           <span className="flex items-center gap-1 text-slate-500">Quick Test Samples:</span>
           <button
             onClick={() => fetchMedia("https://www.youtube.com/watch?v=dQw4w9WgXcQ")}
@@ -748,6 +749,9 @@ export default function Home() {
             Lofi Girl Live Stream
           </button>
         </div>
+
+        {/* Top Monetization Ad Slot */}
+        <AdBanner className="mb-8" />
 
         {/* Error Alert */}
         <AnimatePresence>
@@ -1601,6 +1605,9 @@ export default function Home() {
             <p className="text-xs text-slate-400">Zero advertisements, no telemetry tracking, and no software installation.</p>
           </div>
         </div>
+
+        {/* Mid-Page Monetization Ad Slot */}
+        <AdBanner className="my-12" />
 
         {/* FAQ Accordion Section */}
         <div className="glass-card rounded-3xl p-6 sm:p-8 border border-white/10 mb-16">

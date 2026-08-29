@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { ADS_CONFIG } from "../config/ads";
 
 interface AdBannerProps {
@@ -14,32 +14,36 @@ export default function AdBanner({
   format = "horizontal",
   className = "",
 }: AdBannerProps) {
-  const adContainerRef = useRef<HTMLDivElement | null>(null);
   const isEnabled = ADS_CONFIG.enableAds && ADS_CONFIG.bannerAds.enabled;
+  const adsterraKey = ADS_CONFIG.bannerAds.adsterraKey || "195416b77922cf11007bab28049eeb7c";
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (!isEnabled || !adContainerRef.current) return;
+    setMounted(true);
+  }, []);
 
-    const container = adContainerRef.current;
-    container.innerHTML = ""; // Clear previous elements
+  if (!isEnabled || !mounted) return null;
 
-    // Check if Adsterra Key is set
-    const adsterraKey = ADS_CONFIG.bannerAds.adsterraKey || "195416b77922cf11007bab28049eeb7c";
-
-    if (adsterraKey) {
-      try {
-        // Set atOptions configuration on window
-        (window as any).atOptions = {
-          key: adsterraKey,
-          format: "iframe",
-          height: 90,
-          width: 728,
-          params: {},
-        };
-
-        const configScript = document.createElement("script");
-        configScript.type = "text/javascript";
-        configScript.innerHTML = `
+  const iframeSrcDoc = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+          }
+        </style>
+      </head>
+      <body>
+        <script type="text/javascript">
           atOptions = {
             'key' : '${adsterraKey}',
             'format' : 'iframe',
@@ -47,21 +51,11 @@ export default function AdBanner({
             'width' : 728,
             'params' : {}
           };
-        `;
-        container.appendChild(configScript);
-
-        const invokeScript = document.createElement("script");
-        invokeScript.type = "text/javascript";
-        invokeScript.src = `https://www.highrevenueformat.com/${adsterraKey}/invoke.js`;
-        invokeScript.async = true;
-        container.appendChild(invokeScript);
-      } catch (err) {
-        console.warn("Adsterra script injection error:", err);
-      }
-    }
-  }, [isEnabled]);
-
-  if (!isEnabled) return null;
+        </script>
+        <script type="text/javascript" src="https://www.highrevenueformat.com/${adsterraKey}/invoke.js"></script>
+      </body>
+    </html>
+  `;
 
   return (
     <div className={`w-full flex flex-col items-center justify-center ${className}`}>
@@ -69,10 +63,16 @@ export default function AdBanner({
         Advertisement
       </span>
 
-      <div
-        className="w-full max-w-3xl rounded-2xl border border-white/10 bg-slate-950/60 p-2 flex items-center justify-center min-h-[95px] overflow-hidden text-center shadow-lg"
-      >
-        <div ref={adContainerRef} className="w-full flex items-center justify-center min-h-[90px]" />
+      <div className="w-full max-w-3xl rounded-2xl border border-white/10 bg-slate-950/80 p-2 flex items-center justify-center min-h-[95px] overflow-hidden text-center shadow-xl">
+        <iframe
+          title="Adsterra Banner Ad"
+          srcDoc={iframeSrcDoc}
+          width="728"
+          height="90"
+          className="border-0 overflow-hidden max-w-full"
+          scrolling="no"
+          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
+        />
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
 import { PassThrough } from "stream";
-import { getYtDlpRunner, getFfmpegPath, getYtDlpDefaultArgs } from "@/lib/ytdlp";
+import { getYtDlpRunner, getFfmpegPath, getProductionExtractorArgs } from "@/lib/ytdlp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const defaultArgs = getYtDlpDefaultArgs();
+    const defaultArgs = getProductionExtractorArgs();
 
     const args = [
       ...runner.prefixArgs,

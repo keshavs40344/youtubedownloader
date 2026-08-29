@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
-import { getYtDlpRunner, getYtDlpDefaultArgs } from "@/lib/ytdlp";
+import { getYtDlpRunner, getProductionExtractorArgs } from "@/lib/ytdlp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,7 +88,7 @@ function runYtDlpSafe(args: string[], timeoutMs: number = 18000): Promise<string
     let isSettled = false;
     let timer: NodeJS.Timeout | null = null;
     const runner = getYtDlpRunner();
-    const defaultArgs = getYtDlpDefaultArgs();
+    const defaultArgs = getProductionExtractorArgs();
 
     const process = spawn(
       runner.command,

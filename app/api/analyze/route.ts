@@ -5,8 +5,58 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// High-speed in-memory cache for analyzed metadata (15 minute TTL)
-const analysisCache = new Map<string, { data: any; expiresAt: number }>();
+// Safe Bounded LRU Cache with Max 300 entries to prevent memory exhaustion
+class SafeLRUCache<K, V> {
+  private max: number;
+  private cache: Map<K, { value: V; expires: number }>;
+
+  constructor(max: number = 300) {
+    this.max = max;
+    this.cache = new Map();
+  }
+
+  get(key: K): V | null {
+    const item = this.cache.get(key);
+    if (!item) return null;
+    if (Date.now() > item.expires) {
+      this.cache.delete(key);
+      return null;
+    }
+    // Refresh position
+    this.cache.delete(key);
+    this.cache.set(key, item);
+    return item.value;
+  }
+
+  set(key: K, value: V, ttlMs: number = 15 * 60 * 1000): void {
+    if (this.cache.size >= this.max) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.cache.delete(oldestKey);
+      }
+    }
+    this.cache.set(key, { value, expires: Date.now() + ttlMs });
+  }
+}
+
+const analysisCache = new SafeLRUCache<string, any>(300);
+
+// Basic IP rate limiting protection (max 40 requests per minute per IP)
+const ipRateMap = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const record = ipRateMap.get(ip);
+  if (!record || now > record.resetAt) {
+    ipRateMap.set(ip, { count: 1, resetAt: now + 60 * 1000 });
+    return true;
+  }
+  if (record.count >= 60) {
+    return false;
+  }
+  record.count++;
+  return true;
+}
 
 function normalizeYouTubeUrl(rawUrl: string): string {
   try {
@@ -36,8 +86,11 @@ function normalizeYouTubeUrl(rawUrl: string): string {
   }
 }
 
-function runYtDlp(args: string[]): Promise<string> {
+function runYtDlpSafe(args: string[], timeoutMs: number = 18000): Promise<string> {
   return new Promise((resolve, reject) => {
+    let isSettled = false;
+    let timer: NodeJS.Timeout | null = null;
+
     const process = spawn(
       "python",
       [
@@ -51,35 +104,54 @@ function runYtDlp(args: string[]): Promise<string> {
         "youtube:player_client=web_embedded,mweb",
         "--no-check-certificates",
         "--socket-timeout",
-        "10",
+        "8",
         ...args,
       ],
       {
         windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
       }
     );
 
     let stdout = "";
     let stderr = "";
 
-    process.stdout.on("data", (data) => {
+    timer = setTimeout(() => {
+      if (!isSettled) {
+        isSettled = true;
+        try {
+          process.kill("SIGKILL");
+        } catch {}
+        reject(new Error("Request timed out. Please try again."));
+      }
+    }, timeoutMs);
+
+    process.stdout?.on("data", (data) => {
       stdout += data.toString("utf-8");
     });
 
-    process.stderr.on("data", (data) => {
+    process.stderr?.on("data", (data) => {
       stderr += data.toString("utf-8");
     });
 
     process.on("close", (code) => {
-      if (code === 0) {
-        resolve(stdout);
-      } else {
-        reject(new Error(stderr || `yt-dlp exited with code ${code}`));
+      if (timer) clearTimeout(timer);
+      if (!isSettled) {
+        isSettled = true;
+        if (code === 0 && stdout.trim()) {
+          resolve(stdout);
+        } else {
+          reject(new Error(stderr || `yt-dlp exited with status ${code}`));
+        }
       }
     });
 
     process.on("error", (err) => {
-      reject(err);
+      if (timer) clearTimeout(timer);
+      if (!isSettled) {
+        isSettled = true;
+        reject(err);
+      }
     });
   });
 }
@@ -102,7 +174,15 @@ function formatBytes(bytes: number | null | undefined, fallbackBitrate?: number,
 
 export async function POST(req: NextRequest) {
   try {
-    const { url } = await req.json();
+    const ip = req.headers.get("x-forwarded-for") || "unknown";
+    if (!checkRateLimit(ip)) {
+      return NextResponse.json(
+        { success: false, error: "Too many requests. Please wait a moment and try again." },
+        { status: 429 }
+      );
+    }
+
+    const { url } = await req.json().catch(() => ({ url: "" }));
 
     if (!url || typeof url !== "string" || !url.trim()) {
       return NextResponse.json(
@@ -113,20 +193,20 @@ export async function POST(req: NextRequest) {
 
     const normalizedUrl = normalizeYouTubeUrl(url);
 
-    // Check fast cache first (<1ms)
+    // Fast Cache Check (<1ms)
     const cached = analysisCache.get(normalizedUrl);
-    if (cached && cached.expiresAt > Date.now()) {
-      return NextResponse.json(cached.data);
+    if (cached) {
+      return NextResponse.json(cached);
     }
 
-    // Playlist detection
+    // Playlist check
     const isPlaylist =
       (normalizedUrl.includes("list=") && !normalizedUrl.includes("watch?v=")) ||
       normalizedUrl.includes("/playlist");
 
     if (isPlaylist) {
       try {
-        const rawOutput = await runYtDlp([
+        const rawOutput = await runYtDlpSafe([
           "--flat-playlist",
           "-j",
           "--no-warnings",
@@ -181,20 +261,15 @@ export async function POST(req: NextRequest) {
           },
         };
 
-        // Cache for 15 minutes
-        analysisCache.set(normalizedUrl, {
-          data: resultData,
-          expiresAt: Date.now() + 15 * 60 * 1000,
-        });
-
+        analysisCache.set(normalizedUrl, resultData, 15 * 60 * 1000);
         return NextResponse.json(resultData);
       } catch (playlistErr: any) {
-        console.warn("Playlist fallback to single item:", playlistErr.message);
+        console.warn("Playlist extraction fallback:", playlistErr.message);
       }
     }
 
     // High Speed Single Video Extraction
-    const rawOutput = await runYtDlp([
+    const rawOutput = await runYtDlpSafe([
       "--no-playlist",
       "-j",
       "--no-warnings",
@@ -206,7 +281,6 @@ export async function POST(req: NextRequest) {
     const durationSec = info.duration || 0;
     const formats = info.formats || [];
 
-    // Map to store best format per unique height
     const bestByHeight = new Map<number, any>();
     const bestAudioMap = new Map<string, any>();
 
@@ -219,10 +293,8 @@ export async function POST(req: NextRequest) {
       const tbr = f.tbr || f.vbr || 0;
       const size = f.filesize || f.filesize_approx || (tbr > 0 && durationSec > 0 ? (tbr * 1000 / 8) * durationSec : 0);
 
-      // Filter video streams (with or without audio, we mux audio in stream route)
       if (vcodec !== "none" && height && height >= 144) {
         const existing = bestByHeight.get(height);
-        // Prefer MP4 or higher bitrate/filesize
         if (!existing || size > existing.size || (ext === "mp4" && existing.ext !== "mp4" && size >= existing.size * 0.8)) {
           bestByHeight.set(height, {
             format_id: f.format_id,
@@ -235,7 +307,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Filter audio-only streams
       if (vcodec === "none" && acodec !== "none") {
         const abr = f.abr ? Math.round(f.abr) : f.audio_bitrate ? Math.round(f.audio_bitrate) : 128;
         const key = `${ext}_${abr}`;
@@ -251,7 +322,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Build consolidated video formats array
     const sortedHeights = Array.from(bestByHeight.keys()).sort((a, b) => b - a);
     const videoFormats: any[] = sortedHeights.map((h) => {
       const item = bestByHeight.get(h)!;
@@ -295,7 +365,6 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // Build consolidated audio formats array
     const audioFormats: any[] = Array.from(bestAudioMap.values())
       .sort((a, b) => b.abr - a.abr)
       .slice(0, 4)
@@ -341,7 +410,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Subtitle languages
+    // Subtitles
     const subLangs: { code: string; name: string }[] = [];
     const allSubs = { ...(info.subtitles || {}), ...(info.automatic_captions || {}) };
     Object.keys(allSubs).slice(0, 12).forEach((code) => {
@@ -352,7 +421,7 @@ export async function POST(req: NextRequest) {
       });
     });
 
-    // High quality thumbnail options
+    // Thumbnails
     const thumbnailList: { resolution: string; url: string }[] = [];
     if (info.thumbnails && Array.isArray(info.thumbnails)) {
       info.thumbnails
@@ -401,22 +470,17 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    // Cache for 15 minutes
-    analysisCache.set(normalizedUrl, {
-      data: resultData,
-      expiresAt: Date.now() + 15 * 60 * 1000,
-    });
-
+    analysisCache.set(normalizedUrl, resultData, 15 * 60 * 1000);
     return NextResponse.json(resultData);
   } catch (error: any) {
-    console.error("Analysis error:", error);
+    console.error("Analysis route handled error:", error.message);
     return NextResponse.json(
       {
         success: false,
         error:
           error.message?.includes("Video unavailable") || error.message?.includes("Private video")
-            ? "This video is private or unavailable."
-            : "Could not fetch video details. Please verify the link and try again.",
+            ? "This video is private or unavailable on YouTube."
+            : "Could not retrieve video details. Please verify the URL and try again.",
       },
       { status: 500 }
     );

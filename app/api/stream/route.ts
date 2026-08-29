@@ -8,6 +8,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+// Track active streaming processes to prevent CPU/RAM saturation
+let activeStreamsCount = 0;
+const MAX_CONCURRENT_STREAMS = 25;
+
 function getFfmpegPath(): string | null {
   try {
     const ffmpegStatic = require("ffmpeg-static");
@@ -35,6 +39,14 @@ function sanitizeFilename(name: string): string {
 }
 
 export async function GET(req: NextRequest) {
+  // If server is under extreme concurrent load, reject gracefully instead of crashing
+  if (activeStreamsCount >= MAX_CONCURRENT_STREAMS) {
+    return new NextResponse("Server is currently handling maximum concurrent downloads. Please retry in 10 seconds.", {
+      status: 429,
+      headers: { "Retry-After": "10" },
+    });
+  }
+
   const { searchParams } = new URL(req.url);
   const url = searchParams.get("url");
   const formatId = searchParams.get("format_id") || searchParams.get("itag") || "18";
@@ -47,6 +59,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    activeStreamsCount++;
     const filename = `${sanitizeFilename(rawTitle)}.${ext}`;
     const ffmpegPath = getFfmpegPath();
 
@@ -71,7 +84,6 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // High-speed multi-threaded flags
     const args = [
       "-m",
       "yt_dlp",
@@ -113,31 +125,72 @@ export async function GET(req: NextRequest) {
     });
 
     const passThrough = new PassThrough({
-      highWaterMark: 1024 * 1024 * 16, // 16MB ultra-high-throughput buffer
+      highWaterMark: 1024 * 1024 * 16, // 16MB buffer
     });
+
+    let isStreamClosed = false;
+
+    const cleanupProcess = () => {
+      if (!isStreamClosed) {
+        isStreamClosed = true;
+        activeStreamsCount = Math.max(0, activeStreamsCount - 1);
+        try {
+          child.kill("SIGKILL");
+        } catch {}
+      }
+    };
 
     child.stdout.pipe(passThrough);
 
     child.stderr.on("data", (data) => {
       const msg = data.toString();
       if (msg.includes("ERROR:")) {
-        console.error("Stream stderr:", msg);
+        console.warn("Stream stderr:", msg.trim());
       }
     });
 
     child.on("error", (err) => {
-      console.error("Child process spawn error:", err);
-      passThrough.destroy(err);
+      console.warn("Child process error caught safely:", err.message);
+      cleanupProcess();
+      passThrough.destroy();
+    });
+
+    child.on("close", () => {
+      cleanupProcess();
+    });
+
+    // Abort signal from client disconnecting
+    req.signal.addEventListener("abort", () => {
+      cleanupProcess();
+      passThrough.destroy();
     });
 
     const stream = new ReadableStream({
       start(controller) {
-        passThrough.on("data", (chunk) => controller.enqueue(chunk));
-        passThrough.on("end", () => controller.close());
-        passThrough.on("error", (err) => controller.error(err));
+        passThrough.on("data", (chunk) => {
+          try {
+            controller.enqueue(chunk);
+          } catch {
+            cleanupProcess();
+          }
+        });
+
+        passThrough.on("end", () => {
+          cleanupProcess();
+          try {
+            controller.close();
+          } catch {}
+        });
+
+        passThrough.on("error", (err) => {
+          cleanupProcess();
+          try {
+            controller.error(err);
+          } catch {}
+        });
       },
       cancel() {
-        child.kill();
+        cleanupProcess();
       },
     });
 
@@ -160,9 +213,10 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error: any) {
-    console.error("Stream route error:", error);
+    activeStreamsCount = Math.max(0, activeStreamsCount - 1);
+    console.error("Stream route handled error:", error.message);
     return new NextResponse(
-      `Download Error: ${error.message || "Failed to initialize stream."}`,
+      `Download Error: ${error.message || "Failed to initialize stream. Please try again."}`,
       { status: 500 }
     );
   }

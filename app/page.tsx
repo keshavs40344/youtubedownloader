@@ -52,11 +52,7 @@ import {
   Info,
 } from "lucide-react";
 import confetti from "canvas-confetti";
-import AdBanner from "../components/AdBanner";
-import VideoAdModal from "../components/VideoAdModal";
 import LegalModals from "../components/LegalModals";
-import StickyAdBar from "../components/StickyAdBar";
-import { ADS_CONFIG } from "../config/ads";
 
 interface VideoFormat {
   format_id: string;
@@ -236,16 +232,7 @@ export default function Home() {
   const [showQrModal, setShowQrModal] = useState(false);
   const [showTagsModal, setShowTagsModal] = useState(false);
   const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
-  const [showVideoAdModal, setShowVideoAdModal] = useState(false);
   const [activeLegalModal, setActiveLegalModal] = useState<"privacy" | "terms" | "dmca" | "contact" | null>(null);
-  const [pendingDownloadData, setPendingDownloadData] = useState<{
-    targetUrl: string;
-    formatId: string;
-    ext: string;
-    title: string;
-    trackingKey: string;
-    height?: number;
-  } | null>(null);
   const [subtitleSearch, setSubtitleSearch] = useState("");
 
   // Playlist Batch Selection
@@ -406,7 +393,7 @@ export default function Home() {
     }
   };
 
-  const executeDirectDownload = (
+  const triggerDownload = (
     targetUrl: string,
     formatId: string,
     ext: string,
@@ -463,22 +450,6 @@ export default function Home() {
     setTimeout(() => {
       setActiveDownloads((prev) => prev.filter((d) => d.timestamp !== newDownload.timestamp));
     }, 7000);
-  };
-
-  const triggerDownload = (
-    targetUrl: string,
-    formatId: string,
-    ext: string,
-    title: string,
-    trackingKey: string,
-    height?: number
-  ) => {
-    if (ADS_CONFIG.enableAds && ADS_CONFIG.videoAds.enabled) {
-      setPendingDownloadData({ targetUrl, formatId, ext, title, trackingKey, height });
-      setShowVideoAdModal(true);
-    } else {
-      executeDirectDownload(targetUrl, formatId, ext, title, trackingKey, height);
-    }
   };
 
   const triggerSubtitleDownload = (lang: string, format: "srt" | "vtt") => {
@@ -750,9 +721,6 @@ export default function Home() {
             </button>
           </div>
         </div>
-
-        {/* Top Monetization Ad Slot */}
-        <AdBanner className="my-6" />
 
         {/* Error Alert */}
         <AnimatePresence>
@@ -1355,9 +1323,6 @@ export default function Home() {
                 </div>
               </div>
             </div>
-
-            {/* In-Results Monetization Banner Slot */}
-            <AdBanner className="mt-8 pt-6 border-t border-white/10" />
           </motion.div>
         )}
 
@@ -1610,9 +1575,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Mid-Page Monetization Ad Slot */}
-        <AdBanner className="my-12" />
-
         {/* FAQ Accordion Section */}
         <div className="glass-card rounded-3xl p-6 sm:p-8 border border-white/10 mb-16">
           <div className="text-center mb-8">
@@ -1829,37 +1791,13 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      {/* Video Ad Interstitial Modal */}
-      <VideoAdModal
-        isOpen={showVideoAdModal}
-        targetTitle={pendingDownloadData?.title || "Video"}
-        onClose={() => {
-          setShowVideoAdModal(false);
-          setPendingDownloadData(null);
-        }}
-        onProceedDownload={() => {
-          setShowVideoAdModal(false);
-          if (pendingDownloadData) {
-            executeDirectDownload(
-              pendingDownloadData.targetUrl,
-              pendingDownloadData.formatId,
-              pendingDownloadData.ext,
-              pendingDownloadData.title,
-              pendingDownloadData.trackingKey,
-              pendingDownloadData.height
-            );
-            setPendingDownloadData(null);
-          }
-        }}
-      />
-
-      {/* Legal & Compliance Modals (Monetag / AdSense / DMCA Approval) */}
+      {/* Legal & Compliance Modals */}
       <LegalModals
         type={activeLegalModal}
         onClose={() => setActiveLegalModal(null)}
       />
 
-      {/* Footer with Compliance & Ad Network Verification Links */}
+      {/* Footer */}
       <footer className="border-t border-white/10 py-10 bg-[#07090e]/95 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between text-xs text-slate-500 gap-4">
           <div>
@@ -1909,9 +1847,6 @@ export default function Home() {
           </div>
         </div>
       </footer>
-
-      {/* High-Visibility Sticky Bottom Banner */}
-      <StickyAdBar />
 
     </div>
   );

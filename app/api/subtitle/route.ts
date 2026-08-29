@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
+import { getYtDlpRunner } from "@/lib/ytdlp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-function getPythonCommand(): string {
-  return process.platform === "win32" ? "python" : "python3";
-}
 
 function sanitizeFilename(name: string): string {
   return (
@@ -60,14 +57,13 @@ export async function GET(req: NextRequest) {
   const lang = /^[a-zA-Z0-9_-]{1,12}$/.test(rawLang) ? rawLang : "en";
   const format = /^(vtt|srt)$/.test(rawFormat) ? rawFormat : "vtt";
   const filename = `${sanitizeFilename(rawTitle)}_${lang}.${format}`;
-  const pythonCmd = getPythonCommand();
+  const runner = getYtDlpRunner();
 
   try {
     const child = spawn(
-      pythonCmd,
+      runner.command,
       [
-        "-m",
-        "yt_dlp",
+        ...runner.prefixArgs,
         "--js-runtimes",
         "node",
         "--no-check-certificates",

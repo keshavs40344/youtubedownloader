@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
+import { getYtDlpRunner } from "@/lib/ytdlp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-function getPythonCommand(): string {
-  return process.platform === "win32" ? "python" : "python3";
-}
 
 class SafeLRUCache<K, V> {
   private max: number;
@@ -90,13 +87,12 @@ function runYtDlpSafe(args: string[], timeoutMs: number = 18000): Promise<string
   return new Promise((resolve, reject) => {
     let isSettled = false;
     let timer: NodeJS.Timeout | null = null;
-    const pythonCmd = getPythonCommand();
+    const runner = getYtDlpRunner();
 
     const process = spawn(
-      pythonCmd,
+      runner.command,
       [
-        "-m",
-        "yt_dlp",
+        ...runner.prefixArgs,
         "--js-runtimes",
         "node",
         "--remote-components",

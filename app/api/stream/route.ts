@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
 import { PassThrough } from "stream";
-import path from "path";
-import fs from "fs";
+import { getYtDlpRunner, getFfmpegPath } from "@/lib/ytdlp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,41 +9,6 @@ export const maxDuration = 60;
 
 let activeStreamsCount = 0;
 const MAX_CONCURRENT_STREAMS = 25;
-
-function getPythonCommand(): string {
-  return process.platform === "win32" ? "python" : "python3";
-}
-
-function getFfmpegPath(): string | null {
-  try {
-    const ffmpegStatic = require("ffmpeg-static");
-    if (ffmpegStatic && fs.existsSync(ffmpegStatic)) {
-      if (process.platform !== "win32") {
-        try {
-          fs.chmodSync(ffmpegStatic, 0o755);
-        } catch {}
-      }
-      return ffmpegStatic;
-    }
-  } catch {}
-
-  const localFfmpeg = path.join(
-    process.cwd(),
-    "node_modules",
-    "ffmpeg-static",
-    process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"
-  );
-  if (fs.existsSync(localFfmpeg)) {
-    if (process.platform !== "win32") {
-      try {
-        fs.chmodSync(localFfmpeg, 0o755);
-      } catch {}
-    }
-    return localFfmpeg;
-  }
-
-  return null;
-}
 
 function sanitizeFilename(name: string): string {
   const clean = name
@@ -107,8 +71,8 @@ export async function GET(req: NextRequest) {
 
   try {
     activeStreamsCount++;
+    const runner = getYtDlpRunner();
     const ffmpegPath = getFfmpegPath();
-    const pythonCmd = getPythonCommand();
 
     let formatSelector = formatId;
     const isVideo = ext === "mp4" || ext === "webm";
@@ -132,8 +96,7 @@ export async function GET(req: NextRequest) {
     }
 
     const args = [
-      "-m",
-      "yt_dlp",
+      ...runner.prefixArgs,
       "--js-runtimes",
       "node",
       "--remote-components",
@@ -166,7 +129,7 @@ export async function GET(req: NextRequest) {
 
     args.push("-o", "-", "--", rawUrl.trim());
 
-    const child = spawn(pythonCmd, args, {
+    const child = spawn(runner.command, args, {
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });

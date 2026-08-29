@@ -55,6 +55,7 @@ import confetti from "canvas-confetti";
 import AdBanner from "../components/AdBanner";
 import VideoAdModal from "../components/VideoAdModal";
 import LegalModals from "../components/LegalModals";
+import StickyAdBar from "../components/StickyAdBar";
 import { ADS_CONFIG } from "../config/ads";
 
 interface VideoFormat {
@@ -1354,6 +1355,9 @@ export default function Home() {
                 </div>
               </div>
             </div>
+
+            {/* In-Results Monetization Banner Slot */}
+            <AdBanner className="mt-8 pt-6 border-t border-white/10" />
           </motion.div>
         )}
 
@@ -1905,6 +1909,9 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      {/* High-Visibility Sticky Bottom Banner */}
+      <StickyAdBar />
 
     </div>
   );

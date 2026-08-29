@@ -523,7 +523,7 @@ export async function POST(req: NextRequest) {
         error:
           error.message?.includes("Video unavailable") || error.message?.includes("Private video")
             ? "This video is private or unavailable on YouTube."
-            : "Could not retrieve video details. Please verify the URL and try again.",
+            : error.message || "Could not retrieve video details. Please verify the URL and try again.",
       },
       { status: 500 }
     );

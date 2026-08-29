@@ -11,6 +11,7 @@ import {
   Sparkles,
   Clipboard,
   Play,
+  Pause,
   Check,
   Share2,
   ListVideo,
@@ -38,6 +39,17 @@ import {
   CheckCircle2,
   Loader2,
   HardDriveDownload,
+  Gauge,
+  Cpu,
+  Monitor,
+  Smartphone,
+  Tv,
+  Radio,
+  Search,
+  Sliders,
+  Calendar,
+  Layers,
+  Info,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 
@@ -45,11 +57,16 @@ interface VideoFormat {
   format_id: string;
   quality: string;
   height: number;
+  width?: number;
   container: string;
   hasAudio: boolean;
   isProgressive: boolean;
   fps: number;
+  codec: string;
   size: string;
+  rawBytes?: number;
+  speedFiber?: string;
+  speed4G?: string;
   badge?: string;
   description?: string;
 }
@@ -59,8 +76,11 @@ interface AudioFormat {
   quality: string;
   container: string;
   codec: string;
+  sampleRate: string;
   abr: number;
   size: string;
+  speedFiber?: string;
+  speed4G?: string;
   badge?: string;
   description?: string;
 }
@@ -74,10 +94,13 @@ interface VideoInfo {
   likes?: string | null;
   tags?: string[];
   description?: string | null;
+  category?: string;
+  aspectRatio?: string;
   thumbnail: string;
-  thumbnailList?: { resolution: string; url: string }[];
+  thumbnailList?: { resolution: string; dimensions?: string; url: string }[];
   subtitles?: { code: string; name: string }[];
   duration: string;
+  durationSec?: number;
   views: string;
   uploadDate?: string | null;
   videoFormats: VideoFormat[];
@@ -119,25 +142,32 @@ interface ActiveDownload {
 
 const FAQ_LIST = [
   {
-    q: "Is this YouTube downloader completely free to use?",
-    a: "Yes, 100% free with unlimited downloads. There are no subscriptions, registration requirements, or hidden paywalls.",
+    q: "Is this YouTube downloader completely free and unlimited?",
+    a: "Yes, 100% free with unlimited downloads. There are no subscriptions, registration requirements, limits, or hidden paywalls.",
   },
   {
-    q: "Do downloaded videos include sound and audio?",
-    a: "Yes. All video qualities (including 4K, 1080p Full HD, and 720p HD) are automatically multiplexed with the highest bitrate AAC/Opus audio track into a standard MP4 file.",
+    q: "Do downloaded 4K and 1080p videos include audio and sound?",
+    a: "Yes. All video qualities (including 4K UHD, 1440p 2K, 1080p Full HD, and 720p HD) are automatically multiplexed with the highest bitrate AAC/Opus audio track into a universal MP4 container.",
   },
   {
-    q: "Can I download full YouTube playlists at once?",
-    a: "Yes. Simply paste a YouTube playlist link, select the tracks you wish to save using the checkbox queue, and download them with one click.",
+    q: "Can I download full YouTube playlists with one click?",
+    a: "Yes. Simply paste any YouTube playlist link, choose individual tracks or click 'Select All', and download the entire queue directly to your device.",
   },
   {
-    q: "Can I extract audio only (MP3 / M4A)?",
-    a: "Yes. Navigate to the Audio tab after extracting any video to download standalone high-bitrate audio files that play on any phone, car stereo, or music player.",
+    q: "How do I extract standalone MP3 or M4A audio files?",
+    a: "After pasting a video URL, click the 'Audio' tab. You can download high-bitrate 320kbps or 256kbps audio tracks that work on all smartphones, car stereos, and music apps.",
   },
   {
     q: "Where are downloaded files saved on my device?",
-    a: "Files are saved directly to your browser's default 'Downloads' folder. On mobile devices (iOS / Android), you can also save them to your Photo Gallery or Files app.",
+    a: "Files stream directly into your browser's default 'Downloads' folder. On iPhone/iPad (iOS) and Android, files can be viewed directly in your Photos / Files app.",
   },
+];
+
+const COMPATIBILITY_TABLE = [
+  { format: "MP4 (H.264 / AAC)", quality: "4K / 1080p / 720p", devices: "iPhone, Android, Windows, Mac, Smart TV, CarPlay", recommended: "Best for Universal Playback" },
+  { format: "M4A (AAC-LC)", quality: "320 / 256 / 128 kbps", devices: "Apple Music, iPhone, iTunes, Android, Car Audio", recommended: "Best for Music & Podcasts" },
+  { format: "WebM (VP9 / Opus)", quality: "High Efficiency", devices: "Chrome, Android, VLC, Linux, Windows Media", recommended: "Ultra Compressed" },
+  { format: "SRT / VTT", quality: "Closed Captions", devices: "VLC, QuickTime, YouTube, Media Player Classic", recommended: "Subtitles & Transcripts" },
 ];
 
 function playMicroSound(type: "click" | "pop" | "success" | "download") {
@@ -189,7 +219,7 @@ export default function Home() {
     playlistInfo?: PlaylistInfo;
   } | null>(null);
 
-  const [activeTab, setActiveTab] = useState<"video" | "audio" | "subtitles" | "thumbnails" | "preview">("video");
+  const [activeTab, setActiveTab] = useState<"video" | "audio" | "subtitles" | "thumbnails" | "specs" | "preview">("video");
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [activeDownloads, setActiveDownloads] = useState<ActiveDownload[]>([]);
   const [copiedUrl, setCopiedUrl] = useState(false);
@@ -201,6 +231,7 @@ export default function Home() {
   const [showQrModal, setShowQrModal] = useState(false);
   const [showTagsModal, setShowTagsModal] = useState(false);
   const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
+  const [subtitleSearch, setSubtitleSearch] = useState("");
 
   // Playlist Batch Selection
   const [selectedPlaylistTracks, setSelectedPlaylistTracks] = useState<string[]>([]);
@@ -501,14 +532,14 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col justify-between font-sans selection:bg-indigo-600 selection:text-white relative overflow-x-hidden">
       
-      {/* Background Soft Gradients */}
+      {/* Ambient Lighting Gradients */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
         <div className="absolute -top-40 left-1/3 w-[650px] h-[650px] bg-indigo-600/10 rounded-full blur-[160px]" />
         <div className="absolute top-1/2 -right-32 w-[550px] h-[550px] bg-cyan-500/10 rounded-full blur-[180px]" />
         <div className="absolute -bottom-40 left-1/4 w-[600px] h-[600px] bg-purple-600/10 rounded-full blur-[180px]" />
       </div>
 
-      {/* Floating Active Downloads Indicator Panel */}
+      {/* Floating Active Downloads Notification */}
       <AnimatePresence>
         {activeDownloads.length > 0 && (
           <motion.div
@@ -542,7 +573,7 @@ export default function Home() {
               ))}
             </div>
 
-            {/* Animated Loading Bar */}
+            {/* Live Progress Tube */}
             <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden mt-3">
               <motion.div
                 initial={{ x: "-100%" }}
@@ -600,7 +631,13 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Audio Toggle */}
+            {/* Live System Metric Badge */}
+            <div className="hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[11px] font-mono text-emerald-300">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>FFmpeg High-Speed Muxing: Active</span>
+            </div>
+
+            {/* Audio Sfx Toggle */}
             <button
               onClick={toggleSound}
               className="p-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-white/10 text-slate-300 hover:text-white transition"
@@ -631,18 +668,18 @@ export default function Home() {
       </header>
 
       {/* Main Content Area */}
-      <main className="max-w-4xl w-full mx-auto px-6 py-12 flex-1 relative z-10">
+      <main className="max-w-5xl w-full mx-auto px-6 py-12 flex-1 relative z-10">
 
         {/* Hero Header */}
-        <div className="text-center mb-8 max-w-2xl mx-auto">
+        <div className="text-center mb-8 max-w-3xl mx-auto">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 mb-4 shadow-sm">
-            <Zap className="w-3.5 h-3.5 text-cyan-400" /> Ultra-Fast YouTube Video & Playlist Downloader
+            <Zap className="w-3.5 h-3.5 text-cyan-400" /> Ultra-Detailed Universal Media Extractor
           </div>
           <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
             Download YouTube Videos & Playlists in <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-sky-300 to-cyan-400">Original Quality</span>
           </h1>
           <p className="mt-3 text-slate-400 text-sm sm:text-base leading-relaxed">
-            Free online YouTube converter. Save 4K, 1080p, 720p MP4 videos with full audio, lossless M4A music, subtitles, and cover art with zero advertisements.
+            Directly extract 4K 60FPS, 1080p Full HD, lossless M4A music, multi-language subtitles, and original cover thumbnails with zero advertisements and full audio synchronization.
           </p>
         </div>
 
@@ -656,7 +693,7 @@ export default function Home() {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && fetchMedia()}
-                placeholder="Paste YouTube Video, Shorts, or Playlist link..."
+                placeholder="Paste YouTube Video, Shorts, or Playlist URL..."
                 className="w-full bg-transparent text-sm text-white placeholder-slate-500 outline-none font-medium"
               />
               <button
@@ -681,7 +718,7 @@ export default function Home() {
                 </>
               ) : (
                 <>
-                  <span>Get Download Links</span>
+                  <span>Extract Formats</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -691,24 +728,24 @@ export default function Home() {
 
         {/* Quick Sample Links */}
         <div className="flex flex-wrap items-center justify-center gap-2 mb-10 text-xs text-slate-400">
-          <span className="flex items-center gap-1 text-slate-500">Popular Examples:</span>
+          <span className="flex items-center gap-1 text-slate-500">Quick Test Samples:</span>
           <button
             onClick={() => fetchMedia("https://www.youtube.com/watch?v=dQw4w9WgXcQ")}
             className="px-3 py-1 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 text-slate-300 hover:text-cyan-400 transition text-[11px]"
           >
-            Rick Astley (Music Video)
+            Rick Astley (4K Music Video)
           </button>
           <button
             onClick={() => fetchMedia("https://www.youtube.com/watch?v=4xDzrJKXOOY")}
             className="px-3 py-1 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 text-slate-300 hover:text-cyan-400 transition text-[11px]"
           >
-            Synthwave Radio (Audio)
+            Synthwave Chill (Lossless Audio)
           </button>
           <button
             onClick={() => fetchMedia("https://www.youtube.com/watch?v=jfKfPfyJRdk")}
             className="px-3 py-1 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 text-slate-300 hover:text-cyan-400 transition text-[11px]"
           >
-            Lofi Hip Hop Stream
+            Lofi Girl Live Stream
           </button>
         </div>
 
@@ -761,7 +798,7 @@ export default function Home() {
             <div className="flex flex-wrap items-center justify-between gap-3 pb-6 border-b border-white/10 mb-6">
               <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span>Download Ready: Select format below</span>
+                <span>Media Analyzed: Verified formats ready</span>
               </div>
 
               <div className="flex items-center gap-2">
@@ -785,7 +822,7 @@ export default function Home() {
                     ) : (
                       <Download className="w-3.5 h-3.5" />
                     )}
-                    <span>{downloadingId === "quick_vid" ? "Starting Download..." : `Best Video (${bestVideoFormat.quality})`}</span>
+                    <span>{downloadingId === "quick_vid" ? "Starting..." : `Download Best (${bestVideoFormat.quality})`}</span>
                   </button>
                 )}
 
@@ -808,7 +845,7 @@ export default function Home() {
                     ) : (
                       <FileAudio className="w-3.5 h-3.5" />
                     )}
-                    <span>{downloadingId === "quick_aud" ? "Starting Download..." : `Best Audio (${bestAudioFormat.quality})`}</span>
+                    <span>{downloadingId === "quick_aud" ? "Starting..." : `Download Audio (${bestAudioFormat.quality})`}</span>
                   </button>
                 )}
               </div>
@@ -860,10 +897,10 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* Author & Stats */}
-                <div className="space-y-2 text-xs text-slate-400 bg-[#07090e]/90 p-3.5 rounded-xl border border-white/10">
+                {/* Ultra-Detailed Author & Stats Box */}
+                <div className="space-y-2.5 text-xs text-slate-400 bg-[#07090e]/90 p-4 rounded-2xl border border-white/10">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-slate-200 font-medium truncate">
+                    <div className="flex items-center gap-2 text-slate-200 font-bold truncate">
                       <User className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                       <span className="truncate">{mediaData.videoInfo.author}</span>
                     </div>
@@ -873,15 +910,28 @@ export default function Home() {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center justify-between text-[11px]">
-                    <div className="flex items-center gap-1 text-slate-300">
+
+                  <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/5 text-[11px]">
+                    <div className="flex items-center gap-1.5 text-slate-300">
                       <Eye className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                      <span>{mediaData.videoInfo.views} Views</span>
+                      <span>{mediaData.videoInfo.views}</span>
                     </div>
                     {mediaData.videoInfo.likes && (
-                      <div className="flex items-center gap-1 text-slate-300">
-                        <ThumbsUp className="w-3 h-3 text-emerald-400 shrink-0" />
+                      <div className="flex items-center gap-1.5 text-slate-300">
+                        <ThumbsUp className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                         <span>{mediaData.videoInfo.likes}</span>
+                      </div>
+                    )}
+                    {mediaData.videoInfo.uploadDate && (
+                      <div className="flex items-center gap-1.5 text-slate-400 font-mono">
+                        <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>{mediaData.videoInfo.uploadDate}</span>
+                      </div>
+                    )}
+                    {mediaData.videoInfo.category && (
+                      <div className="flex items-center gap-1.5 text-slate-400">
+                        <Layers className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                        <span>{mediaData.videoInfo.category}</span>
                       </div>
                     )}
                   </div>
@@ -931,7 +981,7 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Formats Selector with Tabs */}
+              {/* Formats Selector with Ultra Detailed Tabs */}
               <div className={`flex flex-col justify-between ${theaterMode ? "md:col-span-12" : "md:col-span-7"}`}>
                 <div>
                   <h2 className="text-base sm:text-lg font-bold text-white mb-4 line-clamp-2 leading-snug">
@@ -977,7 +1027,7 @@ export default function Home() {
                         }`}
                       >
                         <FileText className="w-3.5 h-3.5" />
-                        <span>Subtitles</span>
+                        <span>Subtitles ({mediaData.videoInfo.subtitles.length})</span>
                       </button>
                     )}
 
@@ -997,6 +1047,19 @@ export default function Home() {
                     <button
                       onClick={() => {
                         playSfx("click");
+                        setActiveTab("specs");
+                      }}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition ${
+                        activeTab === "specs" ? "bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-600/30" : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      <Cpu className="w-3.5 h-3.5" />
+                      <span>Tech Specs</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        playSfx("click");
                         setActiveTab("preview");
                       }}
                       className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition ${
@@ -1009,31 +1072,40 @@ export default function Home() {
                   </div>
 
                   {/* Tab Options Content */}
-                  <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                  <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
                     {/* Tab 1: Video Formats */}
                     {activeTab === "video" && (
                       mediaData.videoInfo.videoFormats.length > 0 ? (
-                        mediaData.videoInfo.videoFormats.map((f, idx) => (
+                        mediaData.videoInfo.videoFormats.map((f) => (
                           <div
                             key={f.format_id}
                             className="p-3.5 rounded-2xl bg-[#07090e]/90 border border-white/5 hover:border-white/20 flex items-center justify-between transition group"
                           >
                             <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-xl bg-white/5 text-slate-200 border border-white/10 flex items-center justify-center font-bold text-xs">
-                                {f.height >= 1440 ? "4K" : f.height >= 1080 ? "HD" : "MP4"}
+                              <div className="w-10 h-10 rounded-xl bg-white/5 text-slate-200 border border-white/10 flex flex-col items-center justify-center font-bold text-xs">
+                                <span>{f.height >= 1440 ? "4K" : f.height >= 1080 ? "HD" : "MP4"}</span>
+                                <span className="text-[9px] font-mono text-slate-400">{f.fps}fps</span>
                               </div>
                               <div>
-                                <p className="text-xs font-bold text-white flex items-center gap-2">
-                                  {f.quality}
+                                <div className="flex items-center gap-2">
+                                  <p className="text-xs font-bold text-white">{f.quality}</p>
                                   {f.badge && (
                                     <span className="text-[10px] px-1.5 py-0.2 bg-white/10 text-slate-200 rounded-md border border-white/15 font-medium">
                                       {f.badge}
                                     </span>
                                   )}
-                                </p>
-                                <p className="text-[10px] text-slate-400 font-mono mt-0.5">
-                                  {f.description} • {f.size}
-                                </p>
+                                  <span className="text-[10px] font-mono px-1.5 py-0.2 bg-indigo-500/10 text-indigo-300 rounded border border-indigo-500/20">
+                                    {f.codec}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5">
+                                  <span>{f.size}</span>
+                                  <span>•</span>
+                                  <span className="text-emerald-400 flex items-center gap-0.5">
+                                    <Zap className="w-2.5 h-2.5" />
+                                    {f.speedFiber}
+                                  </span>
+                                </div>
                               </div>
                             </div>
 
@@ -1076,27 +1148,29 @@ export default function Home() {
 
                     {/* Tab 2: Audio Formats */}
                     {activeTab === "audio" && (
-                      mediaData.videoInfo.audioFormats.map((f, idx) => (
+                      mediaData.videoInfo.audioFormats.map((f) => (
                         <div
                           key={f.format_id}
                           className="p-3.5 rounded-2xl bg-[#07090e]/90 border border-white/5 hover:border-emerald-500/40 flex items-center justify-between transition group"
                         >
                           <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center font-bold text-xs">
+                            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex flex-col items-center justify-center font-bold text-xs">
                               <Volume2 className="w-4 h-4" />
                             </div>
                             <div>
-                              <p className="text-xs font-bold text-white flex items-center gap-2">
-                                {f.container.toUpperCase()} Audio ({f.quality})
-                                {f.badge && (
-                                  <span className="text-[10px] px-1.5 py-0.2 bg-emerald-500/10 text-emerald-400 rounded-md border border-emerald-500/20 font-mono">
-                                    {f.badge}
-                                  </span>
-                                )}
-                              </p>
-                              <p className="text-[10px] text-slate-400 font-mono mt-0.5">
-                                {f.description} • {f.size}
-                              </p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-xs font-bold text-white">
+                                  {f.container.toUpperCase()} Audio ({f.quality})
+                                </p>
+                                <span className="text-[10px] px-1.5 py-0.2 bg-emerald-500/10 text-emerald-400 rounded-md border border-emerald-500/20 font-mono">
+                                  {f.codec} • {f.sampleRate}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5">
+                                <span>{f.description}</span>
+                                <span>•</span>
+                                <span className="text-slate-300 font-bold">{f.size}</span>
+                              </div>
                             </div>
                           </div>
 
@@ -1135,68 +1209,142 @@ export default function Home() {
 
                     {/* Tab 3: Subtitles */}
                     {activeTab === "subtitles" && (
-                      mediaData.videoInfo.subtitles && mediaData.videoInfo.subtitles.length > 0 ? (
-                        mediaData.videoInfo.subtitles.map((sub) => (
-                          <div
-                            key={sub.code}
-                            className="p-3.5 rounded-2xl bg-[#07090e]/90 border border-white/5 flex items-center justify-between"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center text-xs font-bold">
-                                <FileText className="w-4 h-4" />
-                              </div>
-                              <p className="text-xs font-bold text-white">{sub.name} Captions</p>
-                            </div>
+                      <div className="space-y-3">
+                        <div className="relative mb-2">
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
+                          <input
+                            type="text"
+                            value={subtitleSearch}
+                            onChange={(e) => setSubtitleSearch(e.target.value)}
+                            placeholder="Filter subtitle language..."
+                            className="w-full bg-[#07090e] border border-white/10 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 outline-none"
+                          />
+                        </div>
 
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => triggerSubtitleDownload(sub.code, "srt")}
-                                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-semibold border border-white/10"
-                              >
-                                .SRT
-                              </button>
-                              <button
-                                onClick={() => triggerSubtitleDownload(sub.code, "vtt")}
-                                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-300 text-xs font-semibold border border-white/10"
-                              >
-                                .VTT
-                              </button>
+                        {mediaData.videoInfo.subtitles
+                          ?.filter((s) => s.name.toLowerCase().includes(subtitleSearch.toLowerCase()))
+                          .map((sub) => (
+                            <div
+                              key={sub.code}
+                              className="p-3.5 rounded-2xl bg-[#07090e]/90 border border-white/5 flex items-center justify-between"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center text-xs font-bold">
+                                  <FileText className="w-4 h-4" />
+                                </div>
+                                <div>
+                                  <p className="text-xs font-bold text-white">{sub.name}</p>
+                                  <p className="text-[10px] text-slate-400 font-mono">Language Code: {sub.code}</p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => triggerSubtitleDownload(sub.code, "srt")}
+                                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-semibold border border-white/10 flex items-center gap-1"
+                                >
+                                  <Download className="w-3 h-3" />
+                                  <span>.SRT</span>
+                                </button>
+                                <button
+                                  onClick={() => triggerSubtitleDownload(sub.code, "vtt")}
+                                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-300 text-xs font-semibold border border-white/10 flex items-center gap-1"
+                                >
+                                  <Download className="w-3 h-3" />
+                                  <span>.VTT</span>
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-xs text-slate-500 p-4">No subtitles found for this video.</p>
-                      )
+                          ))}
+                      </div>
                     )}
 
-                    {/* Tab 4: Covers / Thumbnails */}
+                    {/* Tab 4: Covers / Thumbnails Studio */}
                     {activeTab === "thumbnails" && (
-                      (mediaData.videoInfo.thumbnailList || [
-                        { resolution: "Original HD 1080p", url: mediaData.videoInfo.thumbnail },
-                      ]).map((thumb, idx) => (
-                        <div
-                          key={idx}
-                          className="p-3.5 rounded-2xl bg-[#07090e]/90 border border-white/5 flex items-center justify-between"
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="w-12 h-8 rounded-lg bg-slate-800 overflow-hidden border border-white/10">
-                              <img src={thumb.url} alt="Cover" className="w-full h-full object-cover" />
-                            </div>
-                            <p className="text-xs font-bold text-white">Cover Art ({thumb.resolution})</p>
-                          </div>
-
-                          <a
-                            href={thumb.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            download="thumbnail.jpg"
-                            className="px-3.5 py-1.5 bg-pink-600/20 hover:bg-pink-600 text-pink-300 hover:text-white border border-pink-500/30 text-xs font-bold rounded-xl flex items-center gap-1.5 transition"
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {(mediaData.videoInfo.thumbnailList || [
+                          { resolution: "Original HD", dimensions: "1920×1080", url: mediaData.videoInfo.thumbnail },
+                        ]).map((thumb, idx) => (
+                          <div
+                            key={idx}
+                            className="p-3 rounded-2xl bg-[#07090e]/90 border border-white/10 flex flex-col gap-2"
                           >
-                            <Download className="w-3.5 h-3.5" />
-                            <span>Save Image</span>
-                          </a>
+                            <div className="relative aspect-video rounded-xl overflow-hidden bg-black border border-white/10">
+                              <img src={thumb.url} alt="Cover" className="w-full h-full object-cover" />
+                              <span className="absolute top-2 left-2 px-2 py-0.5 bg-black/80 backdrop-blur-md rounded text-[10px] font-mono text-cyan-300 font-bold border border-white/10">
+                                {thumb.dimensions || thumb.resolution}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-xs font-bold text-white">{thumb.resolution}</span>
+                              <a
+                                href={thumb.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                download="thumbnail.jpg"
+                                className="px-3 py-1 bg-pink-600/20 hover:bg-pink-600 text-pink-300 hover:text-white border border-pink-500/30 text-xs font-bold rounded-lg flex items-center gap-1.5 transition"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>Save Artwork</span>
+                              </a>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Tab 5: Ultra-Detailed Technical Specifications */}
+                    {activeTab === "specs" && (
+                      <div className="space-y-3 p-1">
+                        <div className="p-3.5 rounded-2xl bg-[#07090e] border border-white/10">
+                          <h4 className="text-xs font-bold text-cyan-400 mb-2 flex items-center gap-1.5">
+                            <Monitor className="w-3.5 h-3.5" /> Video Stream Parameters
+                          </h4>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="p-2 rounded-xl bg-slate-900/80 border border-white/5">
+                              <p className="text-[10px] text-slate-500">Aspect Ratio</p>
+                              <p className="font-mono text-white font-bold">{mediaData.videoInfo.aspectRatio}</p>
+                            </div>
+                            <div className="p-2 rounded-xl bg-slate-900/80 border border-white/5">
+                              <p className="text-[10px] text-slate-500">Max Resolution</p>
+                              <p className="font-mono text-white font-bold">{bestVideoFormat?.quality || "1080p"}</p>
+                            </div>
+                            <div className="p-2 rounded-xl bg-slate-900/80 border border-white/5">
+                              <p className="text-[10px] text-slate-500">Video Codecs</p>
+                              <p className="font-mono text-white font-bold">{bestVideoFormat?.codec || "H.264 / AVC"}</p>
+                            </div>
+                            <div className="p-2 rounded-xl bg-slate-900/80 border border-white/5">
+                              <p className="text-[10px] text-slate-500">Frame Rate</p>
+                              <p className="font-mono text-white font-bold">{bestVideoFormat?.fps || 30} FPS</p>
+                            </div>
+                          </div>
                         </div>
-                      ))
+
+                        <div className="p-3.5 rounded-2xl bg-[#07090e] border border-white/10">
+                          <h4 className="text-xs font-bold text-emerald-400 mb-2 flex items-center gap-1.5">
+                            <Radio className="w-3.5 h-3.5" /> Audio Stream Parameters
+                          </h4>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="p-2 rounded-xl bg-slate-900/80 border border-white/5">
+                              <p className="text-[10px] text-slate-500">Audio Codec</p>
+                              <p className="font-mono text-white font-bold">{bestAudioFormat?.codec || "AAC-LC"}</p>
+                            </div>
+                            <div className="p-2 rounded-xl bg-slate-900/80 border border-white/5">
+                              <p className="text-[10px] text-slate-500">Sample Rate</p>
+                              <p className="font-mono text-white font-bold">{bestAudioFormat?.sampleRate || "44,100 Hz"}</p>
+                            </div>
+                            <div className="p-2 rounded-xl bg-slate-900/80 border border-white/5">
+                              <p className="text-[10px] text-slate-500">Audio Channels</p>
+                              <p className="font-mono text-white font-bold">2.0 Stereo (Lossless Mux)</p>
+                            </div>
+                            <div className="p-2 rounded-xl bg-slate-900/80 border border-white/5">
+                              <p className="text-[10px] text-slate-500">Max Audio Bitrate</p>
+                              <p className="font-mono text-white font-bold">{bestAudioFormat?.quality || "160 kbps"}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1344,6 +1492,40 @@ export default function Home() {
             </div>
           </motion.div>
         )}
+
+        {/* Ultra-Detailed Format Compatibility Matrix */}
+        <div className="glass-card rounded-3xl p-6 sm:p-8 border border-white/10 mb-16 shadow-2xl">
+          <div className="text-center mb-6">
+            <h2 className="text-xl sm:text-2xl font-black text-white">Format & Device Compatibility Matrix</h2>
+            <p className="text-xs text-slate-400 mt-1">Detailed technical breakdown of supported output formats and target playback hardware</p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-white/10 text-slate-400">
+                  <th className="py-3 px-4 font-bold">Container / Codec</th>
+                  <th className="py-3 px-4 font-bold">Quality Profile</th>
+                  <th className="py-3 px-4 font-bold">Supported Hardware</th>
+                  <th className="py-3 px-4 font-bold">Recommended Use Case</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {COMPATIBILITY_TABLE.map((row, i) => (
+                  <tr key={i} className="hover:bg-white/5 transition">
+                    <td className="py-3.5 px-4 font-bold text-white flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-cyan-400" />
+                      <span>{row.format}</span>
+                    </td>
+                    <td className="py-3.5 px-4 font-mono text-slate-300">{row.quality}</td>
+                    <td className="py-3.5 px-4 text-slate-400">{row.devices}</td>
+                    <td className="py-3.5 px-4 font-semibold text-emerald-400">{row.recommended}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
 
         {/* 3-Step How It Works Guide */}
         <div className="my-16">

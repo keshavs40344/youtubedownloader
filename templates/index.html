@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en" class="dark scroll-smooth">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VORTEX STREAM // Universal Media Extractor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        obsidian: {
+                            950: '#07090e',
+                            900: '#0b0e14',
+                            850: '#10141e',
+                            800: '#161b29',
+                            700: '#1e2437',
+                        }
+                    },
+                    animation: {
+                        'pulse-glow': 'pulseGlow 6s ease-in-out infinite alternate',
+                        'float': 'float 5s ease-in-out infinite alternate',
+                    },
+                    keyframes: {
+                        pulseGlow: {
+                            '0%': { opacity: '0.2', transform: 'scale(0.95)' },
+                            '100%': { opacity: '0.5', transform: 'scale(1.05)' }
+                        },
+                        float: {
+                            '0%': { transform: 'translateY(0px)' },
+                            '100%': { transform: 'translateY(-6px)' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #07090e;
+            color: #e2e8f0;
+            overflow-x: hidden;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        .glass-card {
+            background: linear-gradient(135deg, rgba(22, 27, 41, 0.7) 0%, rgba(11, 14, 20, 0.75) 100%);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .glass-card:hover {
+            border-color: rgba(99, 102, 241, 0.4);
+            transform: translateY(-2px);
+            box-shadow: 0 16px 40px -12px rgba(99, 102, 241, 0.2);
+        }
+
+        .glow-border:focus-within {
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3), 0 0 25px rgba(6, 182, 212, 0.2);
+            border-color: rgba(99, 102, 241, 0.8);
+        }
+
+        .shimmer-text {
+            background: linear-gradient(90deg, #ffffff 0%, #a5b4fc 25%, #38bdf8 50%, #a5b4fc 75%, #ffffff 100%);
+            background-size: 200% auto;
+            color: transparent;
+            -webkit-background-clip: text;
+            background-clip: text;
+            animation: shimmer 6s linear infinite;
+        }
+
+        @keyframes shimmer {
+            to {
+                background-position: 200% center;
+            }
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #07090e;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #1e2437;
+            border-radius: 9999px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6366f1;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen flex flex-col justify-between relative selection:bg-indigo-600 selection:text-white">
+
+    <!-- Ambient Glowing Background Orbs -->
+    <div class="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div class="absolute -top-32 left-1/4 w-[550px] h-[550px] bg-indigo-600/15 rounded-full blur-[140px] animate-pulse-glow"></div>
+        <div class="absolute top-1/3 -right-32 w-[500px] h-[500px] bg-cyan-500/10 rounded-full blur-[160px] animate-pulse-glow" style="animation-delay: 2s;"></div>
+        <div class="absolute -bottom-32 left-1/3 w-[600px] h-[600px] bg-purple-600/10 rounded-full blur-[160px] animate-pulse-glow" style="animation-delay: 4s;"></div>
+    </div>
+
+    <!-- Floating Toast Container -->
+    <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col gap-2"></div>
+
+    <!-- Top Navigation -->
+    <header class="border-b border-white/5 bg-[#07090e]/80 backdrop-blur-xl sticky top-0 z-40">
+        <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="relative w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-cyan-400 p-[1.5px] shadow-lg shadow-indigo-500/20 animate-float">
+                    <div class="w-full h-full bg-[#07090e] rounded-[14px] flex items-center justify-center">
+                        <i data-lucide="zap" class="w-5 h-5 text-cyan-400"></i>
+                    </div>
+                </div>
+                <div>
+                    <span class="font-extrabold text-lg tracking-tight text-white">VORTEX<span class="text-indigo-400">.STREAM</span></span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-4xl w-full mx-auto px-6 py-12 flex-1 relative z-10">
+
+        <!-- Hero Section -->
+        <div class="text-center mb-10 max-w-2xl mx-auto">
+            <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 mb-4 shadow-inner">
+                <i data-lucide="sparkles" class="w-3.5 h-3.5 text-cyan-400"></i> Studio Media Stream Extractor
+            </div>
+            <h1 class="text-4xl sm:text-6xl font-black text-white tracking-tight leading-tight">
+                Download YouTube in <span class="shimmer-text">Full Quality</span>.
+            </h1>
+            <p class="mt-3 text-slate-400 text-sm sm:text-base">
+                Convert and download MP4 video and audio streams directly with zero advertisements.
+            </p>
+        </div>
+
+        <!-- Input Bar Box -->
+        <div class="glass-card p-2.5 rounded-2xl glow-border border border-white/10 shadow-2xl mb-4">
+            <div class="flex flex-col sm:flex-row gap-2">
+                <div class="flex items-center flex-1 bg-[#07090e]/90 rounded-xl px-4 py-3 border border-white/5 focus-within:border-indigo-500 transition">
+                    <i data-lucide="link-2" class="w-5 h-5 text-slate-500 mr-3 shrink-0"></i>
+                    <input type="text" id="urlInput" placeholder="Paste YouTube Video URL..."
+                        class="w-full bg-transparent text-sm text-white placeholder-slate-500 outline-none font-medium">
+                    <button onclick="pasteClipboard()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 border border-white/10 rounded-lg text-[11px] font-medium text-slate-300 flex items-center gap-1.5 transition shrink-0 ml-1">
+                        <i data-lucide="clipboard" class="w-3.5 h-3.5 text-cyan-400"></i>
+                        <span>Paste</span>
+                    </button>
+                </div>
+                <button onclick="analyzeLink()" id="analyzeBtn"
+                    class="px-8 py-3.5 bg-gradient-to-r from-indigo-600 via-indigo-500 to-cyan-500 hover:opacity-95 active:scale-[0.98] text-white font-bold text-xs uppercase tracking-wider rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/25 shrink-0">
+                    <span>Extract Media</span>
+                    <i data-lucide="arrow-down-to-line" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Quick Demo Chips -->
+        <div class="flex flex-wrap items-center justify-center gap-2 mb-10 text-xs text-slate-400">
+            <span class="flex items-center gap-1 text-slate-500"><i data-lucide="flame" class="w-3.5 h-3.5 text-amber-400"></i> Samples:</span>
+            <button onclick="setAndAnalyze('https://www.youtube.com/watch?v=dQw4w9WgXcQ')" class="px-3 py-1 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/5 text-slate-300 hover:text-cyan-400 transition text-[11px]">Rick Astley</button>
+            <button onclick="setAndAnalyze('https://www.youtube.com/watch?v=4xDzrJKXOOY')" class="px-3 py-1 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/5 text-slate-300 hover:text-cyan-400 transition text-[11px]">Synthwave Radio</button>
+            <button onclick="setAndAnalyze('https://www.youtube.com/watch?v=jfKfPfyJRdk')" class="px-3 py-1 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/5 text-slate-300 hover:text-cyan-400 transition text-[11px]">Lofi Beats</button>
+        </div>
+
+        <!-- Skeleton Loader -->
+        <div id="skeletonLoader" class="hidden glass-card rounded-3xl p-6 sm:p-8 animate-pulse mb-8">
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-8">
+                <div class="md:col-span-5 aspect-video bg-slate-800/70 rounded-2xl"></div>
+                <div class="md:col-span-7 space-y-4">
+                    <div class="h-6 bg-slate-800/70 rounded-lg w-3/4"></div>
+                    <div class="h-4 bg-slate-800/50 rounded-lg w-1/2"></div>
+                    <div class="grid grid-cols-1 gap-3 pt-4">
+                        <div class="h-12 bg-slate-800/50 rounded-xl"></div>
+                        <div class="h-12 bg-slate-800/50 rounded-xl"></div>
+                        <div class="h-12 bg-slate-800/50 rounded-xl"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dynamic Results Card -->
+        <div id="resultCard" class="hidden glass-card rounded-3xl p-6 sm:p-8 shadow-2xl mb-12">
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-8">
+
+                <!-- Media Preview -->
+                <div class="md:col-span-5 flex flex-col gap-4">
+                    <div class="relative group rounded-2xl overflow-hidden aspect-video bg-black border border-white/10 shadow-xl">
+                        <img id="videoThumb" src="" alt="Thumbnail"
+                            class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700">
+                        <span id="videoDuration"
+                            class="absolute bottom-2.5 right-2.5 bg-black/80 font-mono text-[11px] text-cyan-300 px-2.5 py-0.5 rounded-lg border border-white/10 backdrop-blur-md"></span>
+                    </div>
+
+                    <div class="space-y-2 text-xs text-slate-400 bg-[#07090e]/80 p-3.5 rounded-xl border border-white/5">
+                        <div class="flex items-center gap-2 text-slate-200 font-medium truncate">
+                            <i data-lucide="user" class="w-3.5 h-3.5 text-indigo-400 shrink-0"></i>
+                            <span id="videoAuthor" class="truncate"></span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="eye" class="w-3.5 h-3.5 text-cyan-400 shrink-0"></i>
+                            <span id="videoViews"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stream Tracks Selector -->
+                <div class="md:col-span-7 flex flex-col justify-between">
+                    <div>
+                        <h2 id="videoTitle" class="text-base sm:text-lg font-bold text-white mb-4 line-clamp-2 leading-snug"></h2>
+
+                        <label class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-3">Available Video Formats</label>
+
+                        <div id="formatsGrid" class="space-y-2.5 mb-4 max-h-60 overflow-y-auto pr-1"></div>
+
+                        <div class="pt-3 border-t border-white/10">
+                            <button onclick="startDownload('mp3', 0)"
+                                class="w-full py-3.5 px-4 glass-card bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold flex items-center justify-between transition-all group">
+                                <span class="flex items-center gap-2">
+                                    <i data-lucide="music" class="w-4 h-4 text-emerald-400 group-hover:rotate-12 transition-transform"></i>
+                                    Download Audio Track (M4A / MP3)
+                                </span>
+                                <i data-lucide="download" class="w-4 h-4 text-emerald-400"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Features Showcase Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-16">
+            <div class="glass-card p-5 rounded-2xl border border-white/5">
+                <div class="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mb-3">
+                    <i data-lucide="zap" class="w-5 h-5"></i>
+                </div>
+                <h3 class="text-sm font-bold text-white mb-1">Direct Stream Pipeline</h3>
+                <p class="text-xs text-slate-400">Lossless extraction directly from source servers without re-compression lag.</p>
+            </div>
+
+            <div class="glass-card p-5 rounded-2xl border border-white/5">
+                <div class="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mb-3">
+                    <i data-lucide="film" class="w-5 h-5"></i>
+                </div>
+                <h3 class="text-sm font-bold text-white mb-1">High Resolution Video</h3>
+                <p class="text-xs text-slate-400">Full bitrate support for 720p HD, 1080p Full HD, and 4K streams.</p>
+            </div>
+
+            <div class="glass-card p-5 rounded-2xl border border-white/5">
+                <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-3">
+                    <i data-lucide="volume-2" class="w-5 h-5"></i>
+                </div>
+                <h3 class="text-sm font-bold text-white mb-1">Clean Audio Tracks</h3>
+                <p class="text-xs text-slate-400">High-bitrate audio track separation with clean metadata preservation.</p>
+            </div>
+
+            <div class="glass-card p-5 rounded-2xl border border-white/5">
+                <div class="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center mb-3">
+                    <i data-lucide="shield-check" class="w-5 h-5"></i>
+                </div>
+                <h3 class="text-sm font-bold text-white mb-1">Zero Advertisements</h3>
+                <p class="text-xs text-slate-400">Clean, private interface with no popups or background telemetry.</p>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-white/5 py-8 bg-[#07090e]/90 backdrop-blur-md">
+        <div class="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
+            <p>© 2026 Vortex Stream • Open Source Media Engine</p>
+            <div class="flex items-center gap-4 text-slate-400">
+                <span>Direct MP4 Video</span>
+                <span>•</span>
+                <span>Lossless Audio</span>
+                <span>•</span>
+                <span>No Advertisements</span>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        lucide.createIcons();
+        let activeUrl = '';
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const isError = type === 'error';
+            const isSuccess = type === 'success';
+
+            toast.className = `p-4 rounded-xl text-xs font-semibold flex items-center gap-3 backdrop-blur-xl shadow-2xl transition-all duration-300 border ${
+                isError ? 'bg-red-950/90 text-red-300 border-red-500/30' :
+                isSuccess ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/30' :
+                'bg-slate-900/90 text-cyan-300 border-indigo-500/30'
+            }`;
+
+            toast.innerHTML = `
+                <i data-lucide="${isError ? 'alert-circle' : isSuccess ? 'check-circle-2' : 'info'}" class="w-4 h-4 shrink-0"></i>
+                <span>${message}</span>
+            `;
+
+            container.appendChild(toast);
+            lucide.createIcons();
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(10px)';
+                setTimeout(() => toast.remove(), 300);
+            }, 3600);
+        }
+
+        async function pasteClipboard() {
+            try {
+                if (navigator.clipboard) {
+                    const text = await navigator.clipboard.readText();
+                    if (text) {
+                        document.getElementById('urlInput').value = text;
+                        showToast("Link pasted from clipboard!", "success");
+                    }
+                }
+            } catch (e) {
+                showToast("Could not read clipboard. Please paste manually.", "error");
+            }
+        }
+
+        function setAndAnalyze(url) {
+            document.getElementById('urlInput').value = url;
+            analyzeLink();
+        }
+
+        async function analyzeLink() {
+            const url = document.getElementById('urlInput').value.trim();
+            if (!url) return showToast("Please paste a valid YouTube video URL.", "error");
+
+            activeUrl = url;
+            const btn = document.getElementById('analyzeBtn');
+            const skeleton = document.getElementById('skeletonLoader');
+            const resultCard = document.getElementById('resultCard');
+
+            btn.disabled = true;
+            btn.innerHTML = `<i data-lucide="refresh-cw" class="w-4 h-4 animate-spin"></i> Extracting...`;
+            lucide.createIcons();
+
+            resultCard.classList.add('hidden');
+            skeleton.classList.remove('hidden');
+
+            try {
+                const res = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+
+                const data = await res.json();
+
+                if (data.success && data.videoInfo) {
+                    document.getElementById('videoTitle').innerText = data.videoInfo.title;
+                    document.getElementById('videoThumb').src = data.videoInfo.thumbnail;
+                    document.getElementById('videoAuthor').innerText = data.videoInfo.author;
+                    document.getElementById('videoDuration').innerText = data.videoInfo.duration;
+                    document.getElementById('videoViews').innerText = `${data.videoInfo.views} Views`;
+
+                    const grid = document.getElementById('formatsGrid');
+                    grid.innerHTML = '';
+
+                    data.videoInfo.videoFormats.forEach(f => {
+                        const card = document.createElement('div');
+                        card.className = "p-3 bg-[#07090e]/90 border border-white/5 rounded-xl flex items-center justify-between";
+                        card.innerHTML = `
+                            <div>
+                                <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                                    <i data-lucide="video" class="w-3.5 h-3.5 text-indigo-400"></i>
+                                    ${f.quality} (${f.container.toUpperCase()})
+                                </div>
+                                <div class="text-[10px] text-slate-400 font-mono mt-0.5">${f.size} • ${f.description}</div>
+                            </div>
+                            <a href="/api/stream?url=${encodeURIComponent(activeUrl)}&format_id=${f.format_id}&ext=${f.container}&title=${encodeURIComponent(data.videoInfo.title)}" 
+                               download 
+                               class="px-3.5 py-1.5 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5">
+                                <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                                <span>Download</span>
+                            </a>
+                        `;
+                        grid.appendChild(card);
+                    });
+
+                    skeleton.classList.add('hidden');
+                    resultCard.classList.remove('hidden');
+                    lucide.createIcons();
+                    showToast("Stream metadata parsed successfully!", "success");
+                } else {
+                    skeleton.classList.add('hidden');
+                    showToast(data.error || "Failed to extract stream metadata.", "error");
+                }
+            } catch (err) {
+                skeleton.classList.add('hidden');
+                showToast("Connection failed with backend server.", "error");
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<span>Extract Media</span><i data-lucide="arrow-down-to-line" class="w-4 h-4"></i>`;
+                lucide.createIcons();
+            }
+        }
+    </script>
+</body>
+
+</html>

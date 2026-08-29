@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -88,12 +87,6 @@ export default function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-        />
-        {/* Adsterra High-CPM Social Bar / Monetization Network Tag */}
-        <script
-          src="https://pl31088234.profitableratecpmnetwork.com/ee/65/68/ee6568749e7a368bfbd192c105676fcc.js"
-          type="text/javascript"
-          async
         />
       </head>
       <body className="bg-[#07090e] text-slate-100 antialiased min-h-screen selection:bg-indigo-600 selection:text-white">

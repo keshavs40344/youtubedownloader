@@ -5,6 +5,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+function getPythonCommand(): string {
+  return process.platform === "win32" ? "python" : "python3";
+}
+
 class SafeLRUCache<K, V> {
   private max: number;
   private cache: Map<K, { value: V; expires: number }>;
@@ -86,9 +90,10 @@ function runYtDlpSafe(args: string[], timeoutMs: number = 18000): Promise<string
   return new Promise((resolve, reject) => {
     let isSettled = false;
     let timer: NodeJS.Timeout | null = null;
+    const pythonCmd = getPythonCommand();
 
     const process = spawn(
-      "python",
+      pythonCmd,
       [
         "-m",
         "yt_dlp",
@@ -171,8 +176,8 @@ function formatBytes(bytes: number | null | undefined, fallbackBitrate?: number,
 
 function calculateDownloadSpeed(rawBytes: number): { onFiber: string; on4G: string } {
   if (!rawBytes || rawBytes <= 0) return { onFiber: "< 2s", on4G: "< 5s" };
-  const fiberSpeed = 100 * 1024 * 1024 / 8; // 100Mbps
-  const mobile4g = 35 * 1024 * 1024 / 8; // 35Mbps
+  const fiberSpeed = 100 * 1024 * 1024 / 8;
+  const mobile4g = 35 * 1024 * 1024 / 8;
   
   const secFiber = Math.max(1, Math.round(rawBytes / fiberSpeed));
   const sec4g = Math.max(1, Math.round(rawBytes / mobile4g));
@@ -481,7 +486,6 @@ export async function POST(req: NextRequest) {
       durationStr = `${m}:${s.toString().padStart(2, "0")}`;
     }
 
-    // Determine aspect ratio
     const isShorts = info.aspect_ratio ? info.aspect_ratio < 1 : (info.width && info.height ? info.width < info.height : false);
     const aspectRatioStr = isShorts ? "9:16 (Vertical Shorts)" : "16:9 (Widescreen UHD)";
 

@@ -11,23 +11,41 @@ export const maxDuration = 60;
 let activeStreamsCount = 0;
 const MAX_CONCURRENT_STREAMS = 25;
 
+function getPythonCommand(): string {
+  return process.platform === "win32" ? "python" : "python3";
+}
+
 function getFfmpegPath(): string | null {
   try {
     const ffmpegStatic = require("ffmpeg-static");
     if (ffmpegStatic && fs.existsSync(ffmpegStatic)) {
+      if (process.platform !== "win32") {
+        try {
+          fs.chmodSync(ffmpegStatic, 0o755);
+        } catch {}
+      }
       return ffmpegStatic;
     }
   } catch {}
 
-  const localFfmpeg = path.join(process.cwd(), "node_modules", "ffmpeg-static", "ffmpeg.exe");
+  const localFfmpeg = path.join(
+    process.cwd(),
+    "node_modules",
+    "ffmpeg-static",
+    process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"
+  );
   if (fs.existsSync(localFfmpeg)) {
+    if (process.platform !== "win32") {
+      try {
+        fs.chmodSync(localFfmpeg, 0o755);
+      } catch {}
+    }
     return localFfmpeg;
   }
 
   return null;
 }
 
-// Strict filename sanitization (eliminates CRLF / header injection risks)
 function sanitizeFilename(name: string): string {
   const clean = name
     .replace(/[\r\n\t\0]/g, "")
@@ -37,11 +55,10 @@ function sanitizeFilename(name: string): string {
   return clean.substring(0, 80) || "video";
 }
 
-// Strict URL validation to prevent SSRF and argument injection
 function isValidYouTubeUrl(rawUrl: string): boolean {
   if (!rawUrl || typeof rawUrl !== "string") return false;
   const trimmed = rawUrl.trim();
-  if (trimmed.startsWith("-")) return false; // Prevent CLI flag injection
+  if (trimmed.startsWith("-")) return false;
 
   try {
     let toParse = trimmed;
@@ -79,12 +96,10 @@ export async function GET(req: NextRequest) {
   const rawExt = (searchParams.get("ext") || "mp4").toLowerCase();
   const rawTitle = searchParams.get("title") || "video";
 
-  // 1. Validate URL
   if (!rawUrl || !isValidYouTubeUrl(rawUrl)) {
     return new NextResponse("Invalid or unsupported YouTube URL.", { status: 400 });
   }
 
-  // 2. Validate parameters against strict whitelists
   const formatId = /^[a-zA-Z0-9_+.-]{1,30}$/.test(rawFormatId) ? rawFormatId : "18";
   const height = /^[0-9]{1,5}$/.test(rawHeight) ? rawHeight : "";
   const ext = /^(mp4|m4a|webm|opus|mp3)$/.test(rawExt) ? rawExt : "mp4";
@@ -93,6 +108,7 @@ export async function GET(req: NextRequest) {
   try {
     activeStreamsCount++;
     const ffmpegPath = getFfmpegPath();
+    const pythonCmd = getPythonCommand();
 
     let formatSelector = formatId;
     const isVideo = ext === "mp4" || ext === "webm";
@@ -148,10 +164,9 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Pass "--" before URL to guarantee positional parameter safety against flag injection
     args.push("-o", "-", "--", rawUrl.trim());
 
-    const child = spawn("python", args, {
+    const child = spawn(pythonCmd, args, {
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });

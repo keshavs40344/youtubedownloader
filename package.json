@@ -5,7 +5,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "postinstall": "python3 -m pip install -U yt-dlp || pip install -U yt-dlp || python -m pip install -U yt-dlp || true"
   },
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",

@@ -5,6 +5,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+function getPythonCommand(): string {
+  return process.platform === "win32" ? "python" : "python3";
+}
+
 function sanitizeFilename(name: string): string {
   return (
     name
@@ -56,10 +60,11 @@ export async function GET(req: NextRequest) {
   const lang = /^[a-zA-Z0-9_-]{1,12}$/.test(rawLang) ? rawLang : "en";
   const format = /^(vtt|srt)$/.test(rawFormat) ? rawFormat : "vtt";
   const filename = `${sanitizeFilename(rawTitle)}_${lang}.${format}`;
+  const pythonCmd = getPythonCommand();
 
   try {
     const child = spawn(
-      "python",
+      pythonCmd,
       [
         "-m",
         "yt_dlp",

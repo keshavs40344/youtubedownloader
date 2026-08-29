@@ -204,102 +204,127 @@ export async function POST(req: NextRequest) {
 
     const info = JSON.parse(rawOutput);
     const durationSec = info.duration || 0;
-
     const formats = info.formats || [];
-    const videoFormats: any[] = [];
-    const audioFormats: any[] = [];
 
-    const seenVideoKeys = new Set<string>();
-    const seenAudioKeys = new Set<string>();
+    // Map to store best format per unique height
+    const bestByHeight = new Map<number, any>();
+    const bestAudioMap = new Map<string, any>();
 
     for (const f of formats) {
       const vcodec = f.vcodec || "none";
       const acodec = f.acodec || "none";
       const height = f.height;
-      const formatId = f.format_id;
       const ext = f.ext || "mp4";
-      const tbr = f.tbr || f.vbr || f.abr;
-      const sizeStr = formatBytes(f.filesize || f.filesize_approx, tbr, durationSec);
+      const fps = f.fps || 30;
+      const tbr = f.tbr || f.vbr || 0;
+      const size = f.filesize || f.filesize_approx || (tbr > 0 && durationSec > 0 ? (tbr * 1000 / 8) * durationSec : 0);
 
-      // 1. Progressive formats (Video + Audio in MP4)
-      if (vcodec !== "none" && acodec !== "none" && height) {
-        const key = `prog_${height}`;
-        if (!seenVideoKeys.has(key)) {
-          seenVideoKeys.add(key);
-          videoFormats.push({
-            format_id: formatId,
-            quality: `${height}p`,
-            height: height,
-            container: "mp4",
-            hasAudio: true,
-            isProgressive: true,
-            fps: f.fps || 30,
-            size: sizeStr,
-            badge: height >= 720 ? "HD Video + Audio" : "Standard Video + Audio",
-            description: "Video with Sound (Ready to play)",
+      // Filter video streams (with or without audio, we mux audio in stream route)
+      if (vcodec !== "none" && height && height >= 144) {
+        const existing = bestByHeight.get(height);
+        // Prefer MP4 or higher bitrate/filesize
+        if (!existing || size > existing.size || (ext === "mp4" && existing.ext !== "mp4" && size >= existing.size * 0.8)) {
+          bestByHeight.set(height, {
+            format_id: f.format_id,
+            height,
+            fps,
+            ext,
+            size,
+            tbr,
           });
         }
       }
 
-      // 2. High Resolution Video Streams (1080p, 1440p, 4K)
-      if (vcodec !== "none" && acodec === "none" && height && height >= 720) {
-        const key = `stream_${height}_${ext}`;
-        if (!seenVideoKeys.has(key)) {
-          seenVideoKeys.add(key);
-          const badge =
-            height >= 2160 ? "4K Ultra HD" : height >= 1440 ? "2K QHD" : height >= 1080 ? "1080p Full HD" : "720p HD";
-
-          videoFormats.push({
-            format_id: formatId,
-            quality: `${height}p`,
-            height: height,
-            container: ext,
-            hasAudio: false,
-            isProgressive: false,
-            fps: f.fps || 30,
-            size: sizeStr,
-            badge: badge,
-            description: "High Resolution Stream",
-          });
-        }
-      }
-
-      // 3. Audio Only formats (M4A, WebM)
+      // Filter audio-only streams
       if (vcodec === "none" && acodec !== "none") {
         const abr = f.abr ? Math.round(f.abr) : f.audio_bitrate ? Math.round(f.audio_bitrate) : 128;
-        const key = `audio_${ext}_${abr}`;
-
-        if (!seenAudioKeys.has(key)) {
-          seenAudioKeys.add(key);
-          audioFormats.push({
-            format_id: formatId,
-            quality: `${abr} kbps`,
-            container: ext === "m4a" ? "m4a" : ext === "webm" ? "webm" : "mp3",
-            codec: acodec,
-            abr: abr,
-            size: sizeStr,
-            badge: ext === "m4a" ? "Universal M4A" : "Lossless Opus",
-            description: ext === "m4a" ? "AAC Audio (Plays on all devices)" : "High-Fidelity Audio",
+        const key = `${ext}_${abr}`;
+        if (!bestAudioMap.has(key) || (f.filesize || 0) > (bestAudioMap.get(key).filesize || 0)) {
+          bestAudioMap.set(key, {
+            format_id: f.format_id,
+            abr,
+            ext,
+            acodec,
+            filesize: f.filesize || f.filesize_approx,
           });
         }
       }
     }
 
-    videoFormats.sort((a, b) => b.height - a.height);
-    audioFormats.sort((a, b) => b.abr - a.abr);
+    // Build consolidated video formats array
+    const sortedHeights = Array.from(bestByHeight.keys()).sort((a, b) => b - a);
+    const videoFormats: any[] = sortedHeights.map((h) => {
+      const item = bestByHeight.get(h)!;
+      const fpsStr = item.fps > 30 ? `${item.fps}` : "";
+      const qualityLabel = `${h}p${fpsStr}`;
+
+      let badge = "Standard SD";
+      let desc = "MP4 Video with Sound";
+
+      if (h >= 2160) {
+        badge = "4K Ultra HD";
+        desc = "Highest Quality 4K (Full Audio Included)";
+      } else if (h >= 1440) {
+        badge = "2K QHD";
+        desc = "Quad HD 1440p (Full Audio Included)";
+      } else if (h >= 1080) {
+        badge = "1080p Full HD";
+        desc = "Full High Definition (Full Audio Included)";
+      } else if (h >= 720) {
+        badge = "720p HD";
+        desc = "High Definition (Full Audio Included)";
+      } else if (h >= 480) {
+        badge = "480p Standard";
+        desc = "Standard Quality (Data Saver)";
+      } else if (h >= 360) {
+        badge = "360p Mobile";
+        desc = "Fast Download (Mobile Friendly)";
+      }
+
+      return {
+        format_id: item.format_id,
+        quality: qualityLabel,
+        height: h,
+        container: "mp4",
+        hasAudio: true,
+        isProgressive: true,
+        fps: item.fps,
+        size: formatBytes(item.size, item.tbr, durationSec),
+        badge: badge,
+        description: desc,
+      };
+    });
+
+    // Build consolidated audio formats array
+    const audioFormats: any[] = Array.from(bestAudioMap.values())
+      .sort((a, b) => b.abr - a.abr)
+      .slice(0, 4)
+      .map((a) => {
+        const extName = a.ext === "m4a" ? "m4a" : a.ext === "webm" ? "opus" : "mp3";
+        return {
+          format_id: a.format_id,
+          quality: `${a.abr} kbps`,
+          container: extName,
+          codec: a.acodec,
+          abr: a.abr,
+          size: formatBytes(a.filesize, a.abr, durationSec),
+          badge: a.abr >= 160 ? "High Bitrate" : "Standard Audio",
+          description: extName === "m4a" ? "Universal AAC Audio" : "High-Fidelity Opus",
+        };
+      });
 
     if (videoFormats.length === 0) {
       videoFormats.push({
         format_id: "best",
-        quality: "Best Available",
-        height: 720,
+        quality: "1080p Full HD",
+        height: 1080,
         container: "mp4",
         hasAudio: true,
         isProgressive: true,
         fps: 30,
-        size: formatBytes(null, 1500, durationSec),
-        badge: "Auto Format",
-        description: "Adaptive High Quality Stream",
+        size: formatBytes(null, 2500, durationSec),
+        badge: "1080p Full HD",
+        description: "High Definition (Full Audio Included)",
       });
     }
 
@@ -311,8 +336,8 @@ export async function POST(req: NextRequest) {
         codec: "aac",
         abr: 128,
         size: formatBytes(null, 128, durationSec),
-        badge: "Default Audio",
-        description: "Direct Audio Stream",
+        badge: "Standard Audio",
+        description: "Universal AAC Audio",
       });
     }
 

@@ -1,11 +1,4 @@
 {
   "framework": "nextjs",
-  "buildCommand": "npm run build",
-  "regions": ["iad1", "sfo1", "fra1", "sin1"],
-  "functions": {
-    "app/api/**/*": {
-      "maxDuration": 60,
-      "memory": 1024
-    }
-  }
+  "buildCommand": "npm run build"
 }

@@ -53,6 +53,8 @@ import {
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import AdBanner from "../components/AdBanner";
+import VideoAdModal from "../components/VideoAdModal";
+import { ADS_CONFIG } from "../config/ads";
 
 interface VideoFormat {
   format_id: string;
@@ -232,6 +234,15 @@ export default function Home() {
   const [showQrModal, setShowQrModal] = useState(false);
   const [showTagsModal, setShowTagsModal] = useState(false);
   const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
+  const [showVideoAdModal, setShowVideoAdModal] = useState(false);
+  const [pendingDownloadData, setPendingDownloadData] = useState<{
+    targetUrl: string;
+    formatId: string;
+    ext: string;
+    title: string;
+    trackingKey: string;
+    height?: number;
+  } | null>(null);
   const [subtitleSearch, setSubtitleSearch] = useState("");
 
   // Playlist Batch Selection
@@ -392,7 +403,7 @@ export default function Home() {
     }
   };
 
-  const triggerDownload = (
+  const executeDirectDownload = (
     targetUrl: string,
     formatId: string,
     ext: string,
@@ -449,6 +460,22 @@ export default function Home() {
     setTimeout(() => {
       setActiveDownloads((prev) => prev.filter((d) => d.timestamp !== newDownload.timestamp));
     }, 7000);
+  };
+
+  const triggerDownload = (
+    targetUrl: string,
+    formatId: string,
+    ext: string,
+    title: string,
+    trackingKey: string,
+    height?: number
+  ) => {
+    if (ADS_CONFIG.enableAds && ADS_CONFIG.videoAds.enabled) {
+      setPendingDownloadData({ targetUrl, formatId, ext, title, trackingKey, height });
+      setShowVideoAdModal(true);
+    } else {
+      executeDirectDownload(targetUrl, formatId, ext, title, trackingKey, height);
+    }
   };
 
   const triggerSubtitleDownload = (lang: string, format: "srt" | "vtt") => {
@@ -1795,6 +1822,30 @@ export default function Home() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Video Ad Interstitial Modal */}
+      <VideoAdModal
+        isOpen={showVideoAdModal}
+        targetTitle={pendingDownloadData?.title || "Video"}
+        onClose={() => {
+          setShowVideoAdModal(false);
+          setPendingDownloadData(null);
+        }}
+        onProceedDownload={() => {
+          setShowVideoAdModal(false);
+          if (pendingDownloadData) {
+            executeDirectDownload(
+              pendingDownloadData.targetUrl,
+              pendingDownloadData.formatId,
+              pendingDownloadData.ext,
+              pendingDownloadData.title,
+              pendingDownloadData.trackingKey,
+              pendingDownloadData.height
+            );
+            setPendingDownloadData(null);
+          }
+        }}
+      />
 
       {/* Footer */}
       <footer className="border-t border-white/10 py-10 bg-[#07090e]/95 backdrop-blur-xl">

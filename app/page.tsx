@@ -632,12 +632,6 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Live System Metric Badge */}
-            <div className="hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[11px] font-mono text-emerald-300">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>FFmpeg High-Speed Muxing: Active</span>
-            </div>
-
             {/* Audio Sfx Toggle */}
             <button
               onClick={toggleSound}
@@ -727,31 +721,8 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Quick Sample Links */}
-        <div className="flex flex-wrap items-center justify-center gap-2 mb-6 text-xs text-slate-400">
-          <span className="flex items-center gap-1 text-slate-500">Quick Test Samples:</span>
-          <button
-            onClick={() => fetchMedia("https://www.youtube.com/watch?v=dQw4w9WgXcQ")}
-            className="px-3 py-1 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 text-slate-300 hover:text-cyan-400 transition text-[11px]"
-          >
-            Rick Astley (4K Music Video)
-          </button>
-          <button
-            onClick={() => fetchMedia("https://www.youtube.com/watch?v=4xDzrJKXOOY")}
-            className="px-3 py-1 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 text-slate-300 hover:text-cyan-400 transition text-[11px]"
-          >
-            Synthwave Chill (Lossless Audio)
-          </button>
-          <button
-            onClick={() => fetchMedia("https://www.youtube.com/watch?v=jfKfPfyJRdk")}
-            className="px-3 py-1 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 text-slate-300 hover:text-cyan-400 transition text-[11px]"
-          >
-            Lofi Girl Live Stream
-          </button>
-        </div>
-
         {/* Top Monetization Ad Slot */}
-        <AdBanner className="mb-8" />
+        <AdBanner className="my-6" />
 
         {/* Error Alert */}
         <AnimatePresence>

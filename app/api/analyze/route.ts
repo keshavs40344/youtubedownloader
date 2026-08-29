@@ -5,6 +5,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+// High-speed in-memory cache for analyzed metadata (15 minute TTL)
+const analysisCache = new Map<string, { data: any; expiresAt: number }>();
+
 function normalizeYouTubeUrl(rawUrl: string): string {
   try {
     let urlStr = rawUrl.trim();
@@ -37,7 +40,16 @@ function runYtDlp(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const process = spawn(
       "python",
-      ["-m", "yt_dlp", "--js-runtimes", "node", "--remote-components", "ejs:github", ...args],
+      [
+        "-m",
+        "yt_dlp",
+        "--js-runtimes",
+        "node",
+        "--remote-components",
+        "ejs:github",
+        "--no-check-certificates",
+        ...args,
+      ],
       {
         windowsHide: true,
       }
@@ -97,6 +109,12 @@ export async function POST(req: NextRequest) {
 
     const normalizedUrl = normalizeYouTubeUrl(url);
 
+    // Check fast cache first
+    const cached = analysisCache.get(normalizedUrl);
+    if (cached && cached.expiresAt > Date.now()) {
+      return NextResponse.json(cached.data);
+    }
+
     // Playlist detection
     const isPlaylist =
       (normalizedUrl.includes("list=") && !normalizedUrl.includes("watch?v=")) ||
@@ -146,7 +164,7 @@ export async function POST(req: NextRequest) {
           };
         });
 
-        return NextResponse.json({
+        const resultData = {
           success: true,
           isPlaylist: true,
           playlistInfo: {
@@ -157,14 +175,23 @@ export async function POST(req: NextRequest) {
             thumbnail: items[0]?.thumbnail || "",
             items,
           },
+        };
+
+        // Cache for 15 minutes
+        analysisCache.set(normalizedUrl, {
+          data: resultData,
+          expiresAt: Date.now() + 15 * 60 * 1000,
         });
+
+        return NextResponse.json(resultData);
       } catch (playlistErr: any) {
         console.warn("Playlist fallback to single item:", playlistErr.message);
       }
     }
 
-    // Single Video Extraction
+    // High Speed Single Video Extraction
     const rawOutput = await runYtDlp([
+      "--no-playlist",
       "-j",
       "--no-warnings",
       "--skip-download",
@@ -320,7 +347,7 @@ export async function POST(req: NextRequest) {
       durationStr = `${m}:${s.toString().padStart(2, "0")}`;
     }
 
-    return NextResponse.json({
+    const resultData = {
       success: true,
       isPlaylist: false,
       videoInfo: {
@@ -343,7 +370,15 @@ export async function POST(req: NextRequest) {
         videoFormats,
         audioFormats,
       },
+    };
+
+    // Cache for 15 minutes
+    analysisCache.set(normalizedUrl, {
+      data: resultData,
+      expiresAt: Date.now() + 15 * 60 * 1000,
     });
+
+    return NextResponse.json(resultData);
   } catch (error: any) {
     console.error("Analysis error:", error);
     return NextResponse.json(

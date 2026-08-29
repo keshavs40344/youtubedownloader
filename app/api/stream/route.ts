@@ -39,6 +39,11 @@ export async function GET(req: NextRequest) {
       "ejs:github",
       "--extractor-args",
       "youtube:player_client=web_embedded,mweb",
+      "--no-check-certificates",
+      "--concurrent-fragments",
+      "4",
+      "--buffer-size",
+      "16M",
       "-f",
       formatId,
       "--no-warnings",
@@ -54,7 +59,7 @@ export async function GET(req: NextRequest) {
     });
 
     const passThrough = new PassThrough({
-      highWaterMark: 1024 * 1024 * 4,
+      highWaterMark: 1024 * 1024 * 8, // 8MB high-throughput buffer
     });
 
     child.stdout.pipe(passThrough);

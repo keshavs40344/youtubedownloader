@@ -1,10 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
 import { PassThrough } from "stream";
+import path from "path";
+import fs from "fs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+function getFfmpegPath(): string | null {
+  try {
+    // 1. Try ffmpeg-static npm package
+    const ffmpegStatic = require("ffmpeg-static");
+    if (ffmpegStatic && fs.existsSync(ffmpegStatic)) {
+      return ffmpegStatic;
+    }
+  } catch {}
+
+  // 2. Check local node_modules path
+  const localFfmpeg = path.join(process.cwd(), "node_modules", "ffmpeg-static", "ffmpeg.exe");
+  if (fs.existsSync(localFfmpeg)) {
+    return localFfmpeg;
+  }
+
+  return null;
+}
 
 function sanitizeFilename(name: string): string {
   return (
@@ -20,6 +40,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const url = searchParams.get("url");
   const formatId = searchParams.get("format_id") || searchParams.get("itag") || "18";
+  const height = searchParams.get("height") || "";
   const ext = (searchParams.get("ext") || "mp4").toLowerCase();
   const rawTitle = searchParams.get("title") || "video";
 
@@ -29,6 +50,33 @@ export async function GET(req: NextRequest) {
 
   try {
     const filename = `${sanitizeFilename(rawTitle)}.${ext}`;
+    const ffmpegPath = getFfmpegPath();
+
+    let formatSelector = formatId;
+
+    // If downloading a video (MP4 / WebM), ALWAYS merge best audio with the selected video resolution
+    const isVideo = ext === "mp4" || ext === "webm" || ext === "mkv";
+
+    if (isVideo) {
+      if (formatId === "18") {
+        // Format 18 is YouTube's progressive video+audio stream
+        formatSelector = "18/best[ext=mp4]/best";
+      } else if (formatId === "best" || !formatId) {
+        formatSelector = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best";
+      } else if (height) {
+        formatSelector = `bestvideo[height<=${height}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${height}]+bestaudio/best[height<=${height}]/best`;
+      } else {
+        // Merge the requested format with best audio
+        formatSelector = `${formatId}+bestaudio[ext=m4a]/${formatId}+bestaudio/best`;
+      }
+    } else {
+      // Audio only
+      if (formatId === "bestaudio" || !formatId) {
+        formatSelector = ext === "m4a" ? "bestaudio[ext=m4a]/bestaudio/best" : "bestaudio/best";
+      } else {
+        formatSelector = `${formatId}/bestaudio/best`;
+      }
+    }
 
     const args = [
       "-m",
@@ -45,13 +93,19 @@ export async function GET(req: NextRequest) {
       "--buffer-size",
       "16M",
       "-f",
-      formatId,
+      formatSelector,
       "--no-warnings",
       "--no-progress",
-      "-o",
-      "-",
-      url,
     ];
+
+    if (ffmpegPath) {
+      args.push("--ffmpeg-location", ffmpegPath);
+      if (isVideo) {
+        args.push("--merge-output-format", "mp4");
+      }
+    }
+
+    args.push("-o", "-", url);
 
     const child = spawn("python", args, {
       windowsHide: true,
@@ -59,7 +113,7 @@ export async function GET(req: NextRequest) {
     });
 
     const passThrough = new PassThrough({
-      highWaterMark: 1024 * 1024 * 8, // 8MB high-throughput buffer
+      highWaterMark: 1024 * 1024 * 8, // 8MB buffer
     });
 
     child.stdout.pipe(passThrough);

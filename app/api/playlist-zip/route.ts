@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
-import { PassThrough, Readable } from "stream";
+import { PassThrough } from "stream";
 import https from "https";
 import http from "http";
 import { getYtDlpRunner, getProductionExtractorArgs } from "@/lib/ytdlp";
@@ -16,7 +16,7 @@ function sanitizeFilename(name: string): string {
     name
       .replace(/[\r\n\t\0]/g, "")
       .replace(/[/\\?%*:|"<>#]/g, "")
-      .replace(/\s+/g, " ")
+      .replace(/\s+/g, "_")
       .trim()
       .substring(0, 70) || "track"
   );
@@ -80,7 +80,9 @@ function getDirectStreamUrl(
     child.on("close", (code) => {
       if (code === 0) {
         const directUrls = stdout.trim().split("\n").filter(Boolean);
-        resolve(directUrls[0] || null);
+        // Find first valid progressive or media URL
+        const validUrl = directUrls.find((u) => u.startsWith("http"));
+        resolve(validUrl || null);
       } else {
         resolve(null);
       }
@@ -90,26 +92,32 @@ function getDirectStreamUrl(
   });
 }
 
-function fetchHttpStream(targetUrl: string): Promise<Readable | null> {
+function appendUrlToZip(
+  zip: any,
+  directUrl: string,
+  filename: string
+): Promise<boolean> {
   return new Promise((resolve) => {
-    const client = targetUrl.startsWith("https") ? https : http;
-    client
-      .get(
-        targetUrl,
-        {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          },
+    const client = directUrl.startsWith("https") ? https : http;
+    const req = client.get(
+      directUrl,
+      {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         },
-        (res) => {
-          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            resolve(res);
-          } else {
-            resolve(null);
-          }
+      },
+      (res) => {
+        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+          zip.append(res, { name: filename });
+          res.on("end", () => resolve(true));
+          res.on("error", () => resolve(false));
+        } else {
+          resolve(false);
         }
-      )
-      .on("error", () => resolve(null));
+      }
+    );
+
+    req.on("error", () => resolve(false));
   });
 }
 
@@ -132,7 +140,7 @@ export async function GET(req: NextRequest) {
   const runner = getYtDlpRunner();
   const defaultArgs = getProductionExtractorArgs();
 
-  // 1. Fetch playlist track listing
+  // 1. Fetch playlist video items
   let videoItems: { id: string; title: string; url: string }[] = [];
   try {
     const listArgs = [
@@ -176,27 +184,28 @@ export async function GET(req: NextRequest) {
     return new NextResponse("Could not fetch videos from this playlist. Please verify the URL.", { status: 404 });
   }
 
+  // Progressive Stream Selector with Audio Included
   let formatSelector = "18/best[ext=mp4]/best";
   if (type === "audio") {
     if (quality === "m4a") {
-      formatSelector = "bestaudio[ext=m4a]/bestaudio/best";
+      formatSelector = "bestaudio[ext=m4a]/bestaudio/140/best";
     } else {
       formatSelector = "bestaudio/best";
     }
   } else {
     if (quality === "1080") {
-      formatSelector = "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080]/18/best";
+      formatSelector = "22/18/best[ext=mp4]/best";
     } else if (quality === "720") {
-      formatSelector = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]/18/best";
+      formatSelector = "22/18/best[ext=mp4]/best";
     } else if (quality === "480") {
-      formatSelector = "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480]/18/best";
+      formatSelector = "18/best[ext=mp4]/best";
     } else {
       formatSelector = "18/best[ext=mp4]/best";
     }
   }
 
-  // 2. High-Performance Zero-Delay ZipArchive (Level 0 - Store Mode for Instant Streaming)
-  const passThrough = new PassThrough({ highWaterMark: 1024 * 1024 * 16 });
+  // 2. High-Performance Zero-Delay ZipArchive
+  const passThrough = new PassThrough({ highWaterMark: 1024 * 1024 * 32 });
   const zip = new ZipArchive({ zlib: { level: 0 } });
 
   zip.on("error", (err: any) => {
@@ -206,7 +215,7 @@ export async function GET(req: NextRequest) {
 
   zip.pipe(passThrough);
 
-  // Background stream pipeline: Starts piping the very first song in under 1 second!
+  // Background stream pipeline: Appends each video's audio+video stream into the zip file
   (async () => {
     try {
       for (let i = 0; i < videoItems.length; i++) {
@@ -216,14 +225,7 @@ export async function GET(req: NextRequest) {
 
         const directUrl = await getDirectStreamUrl(item.url, formatSelector, runner, defaultArgs);
         if (directUrl) {
-          const stream = await fetchHttpStream(directUrl);
-          if (stream) {
-            zip.append(stream, { name: cleanName });
-            await new Promise((res) => {
-              stream.on("end", res);
-              stream.on("error", res);
-            });
-          }
+          await appendUrlToZip(zip, directUrl, cleanName);
         }
       }
 

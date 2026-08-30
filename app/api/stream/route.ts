@@ -1,21 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
-import { PassThrough } from "stream";
-import path from "path";
-import fs from "fs";
-import { getYtDlpRunner, getFfmpegPath, getProductionExtractorArgs } from "@/lib/ytdlp";
+import { getYtDlpRunner, getProductionExtractorArgs } from "@/lib/ytdlp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 function sanitizeFilename(name: string): string {
-  const clean = name
-    .replace(/[\r\n\t\0]/g, "")
-    .replace(/[/\\?%*:|"<>#]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return clean.substring(0, 80) || "video";
+  return (
+    name
+      .replace(/[\r\n\t\0]/g, "")
+      .replace(/[/\\?%*:|"<>#]/g, "")
+      .replace(/\s+/g, "_")
+      .trim()
+      .substring(0, 80) || "video"
+  );
 }
 
 function isValidYouTubeUrl(rawUrl: string): boolean {
@@ -85,7 +84,6 @@ export async function GET(req: NextRequest) {
   const runner = getYtDlpRunner();
   const defaultArgs = getProductionExtractorArgs();
 
-  // Tier 1: Instant Direct CDN Stream URL Resolution (-g)
   try {
     const getUrlArgs = [
       ...runner.prefixArgs,
@@ -120,149 +118,25 @@ export async function GET(req: NextRequest) {
     const directUrls = stdout.trim().split("\n").filter(Boolean);
 
     if (exitCode === 0 && directUrls.length > 0 && directUrls[0].startsWith("http")) {
-      const cdnUrl = directUrls[0];
-      const cdnResponse = await fetch(cdnUrl, {
+      let cdnUrl = directUrls[0];
+      if (!cdnUrl.includes("&title=")) {
+        cdnUrl += `&title=${encodeURIComponent(sanitizeFilename(rawTitle))}`;
+      }
+
+      // 307 Temporary Redirect: Hands off download directly to Google CDN with 0 Vercel limits
+      return NextResponse.redirect(cdnUrl, {
+        status: 307,
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
-        signal: req.signal,
-      });
-
-      if (cdnResponse.ok && cdnResponse.body) {
-        const mimeTypes: Record<string, string> = {
-          mp4: "video/mp4",
-          m4a: "audio/mp4",
-          webm: "video/webm",
-          opus: "audio/opus",
-          mp3: "audio/mpeg",
-        };
-
-        const contentType = cdnResponse.headers.get("content-type") || mimeTypes[ext] || "application/octet-stream";
-        const contentLength = cdnResponse.headers.get("content-length");
-
-        const responseHeaders: Record<string, string> = {
-          "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
-          "Content-Type": contentType,
           "Cache-Control": "no-cache, no-store, must-revalidate",
-        };
-
-        if (contentLength) {
-          responseHeaders["Content-Length"] = contentLength;
-        }
-
-        return new NextResponse(cdnResponse.body as any, {
-          headers: responseHeaders,
-        });
-      }
-    }
-  } catch (directErr: any) {
-    console.warn("Direct CDN extraction fallback:", directErr.message);
-  }
-
-  // Tier 2: Staged Download Fallback
-  const isWin = process.platform === "win32";
-  const tempDir = isWin ? path.join(process.cwd(), "scratch") : "/tmp";
-  if (!fs.existsSync(tempDir)) {
-    try { fs.mkdirSync(tempDir, { recursive: true }); } catch {}
-  }
-
-  const uniqueId = `stream_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-  const tempFilePath = path.join(tempDir, `${uniqueId}.${ext}`);
-  const ffmpegPath = getFfmpegPath();
-
-  try {
-    const args = [
-      ...runner.prefixArgs,
-      "--js-runtimes",
-      "node",
-      "--remote-components",
-      "ejs:github",
-      ...defaultArgs,
-      "-f",
-      formatSelector,
-      "--no-warnings",
-      "--no-progress",
-    ];
-
-    if (ffmpegPath) {
-      args.push("--ffmpeg-location", ffmpegPath);
-      if (isVideo) {
-        args.push("--merge-output-format", "mp4");
-      }
+        },
+      });
     }
 
-    args.push("-o", tempFilePath, "--", rawUrl.trim());
-
-    await new Promise((resolve, reject) => {
-      const child = spawn(runner.command, args, {
-        windowsHide: true,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-
-      let errOutput = "";
-      child.stderr?.on("data", (d) => (errOutput += d.toString()));
-
-      child.on("close", (code) => {
-        if (code === 0 && fs.existsSync(tempFilePath)) {
-          resolve(true);
-        } else {
-          reject(new Error(errOutput || `Process exited with code ${code}`));
-        }
-      });
-
-      child.on("error", reject);
-
-      req.signal.addEventListener("abort", () => {
-        try { child.kill("SIGKILL"); } catch {}
-        try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
-      });
-    });
-
-    if (!fs.existsSync(tempFilePath)) {
-      throw new Error("Download stream was interrupted.");
-    }
-
-    const fileStat = fs.statSync(tempFilePath);
-    const nodeStream = fs.createReadStream(tempFilePath);
-
-    const cleanup = () => {
-      try {
-        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-      } catch {}
-    };
-
-    const webStream = new ReadableStream({
-      start(controller) {
-        nodeStream.on("data", (chunk) => {
-          try { controller.enqueue(chunk); } catch { cleanup(); }
-        });
-        nodeStream.on("end", () => {
-          cleanup();
-          try { controller.close(); } catch {}
-        });
-        nodeStream.on("error", (err) => {
-          cleanup();
-          try { controller.error(err); } catch {}
-        });
-      },
-      cancel() {
-        cleanup();
-      },
-    });
-
-    return new NextResponse(webStream, {
-      headers: {
-        "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
-        "Content-Type": isVideo ? "video/mp4" : "audio/mpeg",
-        "Content-Length": fileStat.size.toString(),
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-      },
-    });
-  } catch (fallbackErr: any) {
-    try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
-    console.error("Stream route final error:", fallbackErr.message);
+    throw new Error(stderr || "Direct media stream could not be extracted.");
+  } catch (err: any) {
+    console.error("Stream route error:", err.message);
     return new NextResponse(
-      `Download Error: ${fallbackErr.message || "Failed to download stream."}`,
+      `Download Error: ${err.message || "Failed to resolve stream link."}`,
       { status: 500 }
     );
   }

@@ -235,9 +235,12 @@ export default function Home() {
   const [activeLegalModal, setActiveLegalModal] = useState<"privacy" | "terms" | "dmca" | "contact" | null>(null);
   const [subtitleSearch, setSubtitleSearch] = useState("");
 
-  // Playlist Batch Selection
+  // Playlist Batch & Single-File ZIP Selection
   const [selectedPlaylistTracks, setSelectedPlaylistTracks] = useState<string[]>([]);
   const [batchDownloading, setBatchDownloading] = useState(false);
+  const [playlistZipLoading, setPlaylistZipLoading] = useState(false);
+  const [selectedZipQuality, setSelectedZipQuality] = useState("720");
+  const [selectedZipType, setSelectedZipType] = useState<"video" | "audio">("video");
 
   // History & Toast State
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -450,6 +453,41 @@ export default function Home() {
     setTimeout(() => {
       setActiveDownloads((prev) => prev.filter((d) => d.timestamp !== newDownload.timestamp));
     }, 7000);
+  };
+
+  const triggerPlaylistZipDownload = (quality: string, type: "video" | "audio") => {
+    if (!url || !mediaData?.playlistInfo) return;
+    playSfx("download");
+    setPlaylistZipLoading(true);
+
+    const queryParams = new URLSearchParams({
+      url: url,
+      quality: quality,
+      type: type,
+      title: mediaData.playlistInfo.title || "Playlist",
+    });
+
+    const endpoint = `/api/playlist-zip?${queryParams.toString()}`;
+    const anchor = document.createElement("a");
+    anchor.href = endpoint;
+    anchor.setAttribute("download", "");
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+
+    try {
+      confetti({
+        particleCount: 70,
+        spread: 80,
+        origin: { y: 0.85 },
+      });
+    } catch {}
+
+    showToast(`⚡ Packaging Entire Playlist into 1 Single ZIP File (${quality}${type === "audio" ? " Audio" : "p Video"})... Streaming directly!`, "success");
+
+    setTimeout(() => {
+      setPlaylistZipLoading(false);
+    }, 4500);
   };
 
   const triggerSubtitleDownload = (lang: string, format: "srt" | "vtt") => {
@@ -1391,6 +1429,105 @@ export default function Home() {
                   <Music className="w-3.5 h-3.5" />
                   <span>Download MP3</span>
                 </button>
+              </div>
+            </div>
+
+            {/* Single-File ZIP Master Download Section with Quality Selector */}
+            <div className="p-5 rounded-2xl bg-gradient-to-r from-indigo-950/60 via-purple-950/40 to-slate-900 border border-indigo-500/30 mb-8 shadow-xl">
+              <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-400">
+                      <Layers className="w-4 h-4" />
+                    </span>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      Download Entire Playlist in 1 Single File (ZIP)
+                      <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        ⚡ Recommended
+                      </span>
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Get all {mediaData.playlistInfo.totalVideos} videos packaged neatly into a single high-speed ZIP archive with chosen quality.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+                  {/* Quality Selector Pills */}
+                  <div className="flex items-center p-1 rounded-xl bg-black/60 border border-white/10 text-xs">
+                    <button
+                      onClick={() => {
+                        setSelectedZipType("video");
+                        setSelectedZipQuality("1080");
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg font-bold transition ${
+                        selectedZipType === "video" && selectedZipQuality === "1080"
+                          ? "bg-indigo-600 text-white shadow"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      1080p MP4
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedZipType("video");
+                        setSelectedZipQuality("720");
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg font-bold transition ${
+                        selectedZipType === "video" && selectedZipQuality === "720"
+                          ? "bg-indigo-600 text-white shadow"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      720p MP4
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedZipType("video");
+                        setSelectedZipQuality("480");
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg font-bold transition ${
+                        selectedZipType === "video" && selectedZipQuality === "480"
+                          ? "bg-indigo-600 text-white shadow"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      480p MP4
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedZipType("audio");
+                        setSelectedZipQuality("mp3");
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg font-bold transition ${
+                        selectedZipType === "audio" && selectedZipQuality === "mp3"
+                          ? "bg-emerald-600 text-white shadow"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      MP3 Audio
+                    </button>
+                  </div>
+
+                  {/* Master 1-Click ZIP Trigger */}
+                  <button
+                    onClick={() => triggerPlaylistZipDownload(selectedZipQuality, selectedZipType)}
+                    disabled={playlistZipLoading}
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 transition disabled:opacity-50 w-full sm:w-auto"
+                  >
+                    {playlistZipLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                        <span>Packaging ZIP Archive...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4" />
+                        <span>Download 1 ZIP File ({selectedZipQuality === "mp3" ? "MP3" : `${selectedZipQuality}p`})</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
 

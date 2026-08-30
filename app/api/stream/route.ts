@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
+import { PassThrough } from "stream";
 import path from "path";
 import fs from "fs";
-import { getYtDlpRunner, getFfmpegPath } from "@/lib/ytdlp";
+import { getYtDlpRunner, getFfmpegPath, getProductionExtractorArgs } from "@/lib/ytdlp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-let activeStreamsCount = 0;
-const MAX_CONCURRENT_STREAMS = 25;
 
 function sanitizeFilename(name: string): string {
   const clean = name
@@ -47,13 +45,6 @@ function isValidYouTubeUrl(rawUrl: string): boolean {
 }
 
 export async function GET(req: NextRequest) {
-  if (activeStreamsCount >= MAX_CONCURRENT_STREAMS) {
-    return new NextResponse("Server is busy processing high-resolution streams. Please retry in 5 seconds.", {
-      status: 429,
-      headers: { "Retry-After": "5" },
-    });
-  }
-
   const { searchParams } = new URL(req.url);
   const rawUrl = searchParams.get("url");
   const rawFormatId = searchParams.get("format_id") || searchParams.get("itag") || "18";
@@ -70,6 +61,105 @@ export async function GET(req: NextRequest) {
   const ext = /^(mp4|m4a|webm|opus|mp3)$/.test(rawExt) ? rawExt : "mp4";
   const filename = `${sanitizeFilename(rawTitle)}.${ext}`;
 
+  const isVideo = ext === "mp4" || ext === "webm";
+  let formatSelector = formatId;
+
+  if (isVideo) {
+    if (formatId === "18") {
+      formatSelector = "18/best[ext=mp4]/best";
+    } else if (formatId === "best") {
+      formatSelector = "best[ext=mp4]/bestvideo[height<=720]+bestaudio/18/best";
+    } else if (height) {
+      formatSelector = `bestvideo[height<=${height}][ext=mp4]+bestaudio[ext=m4a]/best[height<=${height}]/18/best`;
+    } else {
+      formatSelector = `${formatId}+bestaudio[ext=m4a]/${formatId}/18/best`;
+    }
+  } else {
+    if (formatId === "bestaudio") {
+      formatSelector = ext === "m4a" ? "bestaudio[ext=m4a]/bestaudio/best" : "bestaudio/best";
+    } else {
+      formatSelector = `${formatId}/bestaudio/best`;
+    }
+  }
+
+  const runner = getYtDlpRunner();
+  const defaultArgs = getProductionExtractorArgs();
+
+  // Tier 1: Instant Direct CDN Stream URL Resolution (-g)
+  try {
+    const getUrlArgs = [
+      ...runner.prefixArgs,
+      "--js-runtimes",
+      "node",
+      "--remote-components",
+      "ejs:github",
+      ...defaultArgs,
+      "-f",
+      formatSelector,
+      "-g",
+      "--",
+      rawUrl.trim(),
+    ];
+
+    const getUrlChild = spawn(runner.command, getUrlArgs, {
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    getUrlChild.stdout?.on("data", (d) => (stdout += d.toString()));
+    getUrlChild.stderr?.on("data", (d) => (stderr += d.toString()));
+
+    const exitCode = await new Promise((resolve) => {
+      getUrlChild.on("close", resolve);
+      getUrlChild.on("error", () => resolve(1));
+    });
+
+    const directUrls = stdout.trim().split("\n").filter(Boolean);
+
+    if (exitCode === 0 && directUrls.length > 0 && directUrls[0].startsWith("http")) {
+      const cdnUrl = directUrls[0];
+      const cdnResponse = await fetch(cdnUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+        signal: req.signal,
+      });
+
+      if (cdnResponse.ok && cdnResponse.body) {
+        const mimeTypes: Record<string, string> = {
+          mp4: "video/mp4",
+          m4a: "audio/mp4",
+          webm: "video/webm",
+          opus: "audio/opus",
+          mp3: "audio/mpeg",
+        };
+
+        const contentType = cdnResponse.headers.get("content-type") || mimeTypes[ext] || "application/octet-stream";
+        const contentLength = cdnResponse.headers.get("content-length");
+
+        const responseHeaders: Record<string, string> = {
+          "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+          "Content-Type": contentType,
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+        };
+
+        if (contentLength) {
+          responseHeaders["Content-Length"] = contentLength;
+        }
+
+        return new NextResponse(cdnResponse.body as any, {
+          headers: responseHeaders,
+        });
+      }
+    }
+  } catch (directErr: any) {
+    console.warn("Direct CDN extraction fallback:", directErr.message);
+  }
+
+  // Tier 2: Staged Download Fallback
   const isWin = process.platform === "win32";
   const tempDir = isWin ? path.join(process.cwd(), "scratch") : "/tmp";
   if (!fs.existsSync(tempDir)) {
@@ -78,52 +168,16 @@ export async function GET(req: NextRequest) {
 
   const uniqueId = `stream_${Date.now()}_${Math.random().toString(36).substring(7)}`;
   const tempFilePath = path.join(tempDir, `${uniqueId}.${ext}`);
+  const ffmpegPath = getFfmpegPath();
 
   try {
-    activeStreamsCount++;
-    const runner = getYtDlpRunner();
-    const ffmpegPath = getFfmpegPath();
-
-    let formatSelector = formatId;
-    const isVideo = ext === "mp4" || ext === "webm";
-
-    if (isVideo) {
-      if (formatId === "18") {
-        formatSelector = "18/best[ext=mp4]/best";
-      } else if (formatId === "best") {
-        formatSelector = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best";
-      } else if (height) {
-        formatSelector = `bestvideo[height<=${height}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${height}]+bestaudio/best[height<=${height}]/best`;
-      } else {
-        formatSelector = `${formatId}+bestaudio[ext=m4a]/${formatId}+bestaudio/best`;
-      }
-    } else {
-      if (formatId === "bestaudio") {
-        formatSelector = ext === "m4a" ? "bestaudio[ext=m4a]/bestaudio/best" : "bestaudio/best";
-      } else {
-        formatSelector = `${formatId}/bestaudio/best`;
-      }
-    }
-
     const args = [
       ...runner.prefixArgs,
       "--js-runtimes",
       "node",
       "--remote-components",
       "ejs:github",
-      "--extractor-args",
-      "youtube:player_client=android_creator,android",
-      "--no-check-certificates",
-      "--concurrent-fragments",
-      "8",
-      "--buffer-size",
-      "32M",
-      "--http-chunk-size",
-      "20M",
-      "--retries",
-      "5",
-      "--fragment-retries",
-      "5",
+      ...defaultArgs,
       "-f",
       formatSelector,
       "--no-warnings",
@@ -137,45 +191,26 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Check for cookies
-    const cookiesEnv = process.env.YOUTUBE_COOKIES || process.env.COOKIES_TXT;
-    const cookiesFile = isWin ? path.join(process.cwd(), "cookies.txt") : "/tmp/cookies.txt";
-    if (cookiesEnv) {
-      try {
-        if (!fs.existsSync(cookiesFile) || fs.readFileSync(cookiesFile, "utf-8") !== cookiesEnv.trim()) {
-          fs.writeFileSync(cookiesFile, cookiesEnv.trim(), "utf-8");
-        }
-        args.push("--cookies", cookiesFile);
-      } catch {}
-    } else if (fs.existsSync(cookiesFile)) {
-      args.push("--cookies", cookiesFile);
-    }
-
     args.push("-o", tempFilePath, "--", rawUrl.trim());
 
-    // Execute download and muxing
     await new Promise((resolve, reject) => {
       const child = spawn(runner.command, args, {
         windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
       });
 
-      let stderr = "";
-      child.stderr?.on("data", (d) => {
-        stderr += d.toString();
-      });
+      let errOutput = "";
+      child.stderr?.on("data", (d) => (errOutput += d.toString()));
 
       child.on("close", (code) => {
         if (code === 0 && fs.existsSync(tempFilePath)) {
           resolve(true);
         } else {
-          reject(new Error(stderr || `yt-dlp exited with status ${code}`));
+          reject(new Error(errOutput || `Process exited with code ${code}`));
         }
       });
 
-      child.on("error", (err) => {
-        reject(err);
-      });
+      child.on("error", reject);
 
       req.signal.addEventListener("abort", () => {
         try { child.kill("SIGKILL"); } catch {}
@@ -184,29 +219,22 @@ export async function GET(req: NextRequest) {
     });
 
     if (!fs.existsSync(tempFilePath)) {
-      throw new Error("Target file was not generated properly.");
+      throw new Error("Download stream was interrupted.");
     }
 
     const fileStat = fs.statSync(tempFilePath);
     const nodeStream = fs.createReadStream(tempFilePath);
 
     const cleanup = () => {
-      activeStreamsCount = Math.max(0, activeStreamsCount - 1);
       try {
-        if (fs.existsSync(tempFilePath)) {
-          fs.unlinkSync(tempFilePath);
-        }
+        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
       } catch {}
     };
 
     const webStream = new ReadableStream({
       start(controller) {
         nodeStream.on("data", (chunk) => {
-          try {
-            controller.enqueue(chunk);
-          } catch {
-            cleanup();
-          }
+          try { controller.enqueue(chunk); } catch { cleanup(); }
         });
         nodeStream.on("end", () => {
           cleanup();
@@ -222,33 +250,19 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    const mimeTypes: Record<string, string> = {
-      mp4: "video/mp4",
-      m4a: "audio/mp4",
-      webm: "video/webm",
-      opus: "audio/opus",
-      mp3: "audio/mpeg",
-    };
-
-    const contentType = mimeTypes[ext] || "application/octet-stream";
-
     return new NextResponse(webStream, {
       headers: {
         "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
-        "Content-Type": contentType,
+        "Content-Type": isVideo ? "video/mp4" : "audio/mpeg",
         "Content-Length": fileStat.size.toString(),
         "Cache-Control": "no-cache, no-store, must-revalidate",
       },
     });
-  } catch (error: any) {
-    activeStreamsCount = Math.max(0, activeStreamsCount - 1);
-    try {
-      if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-    } catch {}
-
-    console.error("Stream route handled error:", error.message);
+  } catch (fallbackErr: any) {
+    try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
+    console.error("Stream route final error:", fallbackErr.message);
     return new NextResponse(
-      `Download Error: ${error.message || "Failed to download stream."}`,
+      `Download Error: ${fallbackErr.message || "Failed to download stream."}`,
       { status: 500 }
     );
   }

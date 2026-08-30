@@ -429,12 +429,14 @@ export default function Home() {
 
     const endpoint = `/api/stream?${queryParams.toString()}`;
 
-    const anchor = document.createElement("a");
-    anchor.href = endpoint;
-    anchor.setAttribute("download", "");
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
+    // Direct Browser Download Trigger
+    const iframe = document.createElement("iframe");
+    iframe.style.display = "none";
+    iframe.src = endpoint;
+    document.body.appendChild(iframe);
+    setTimeout(() => {
+      try { document.body.removeChild(iframe); } catch {}
+    }, 60000);
 
     try {
       confetti({
@@ -468,12 +470,14 @@ export default function Home() {
     });
 
     const endpoint = `/api/playlist-zip?${queryParams.toString()}`;
-    const anchor = document.createElement("a");
-    anchor.href = endpoint;
-    anchor.setAttribute("download", "");
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
+
+    const iframe = document.createElement("iframe");
+    iframe.style.display = "none";
+    iframe.src = endpoint;
+    document.body.appendChild(iframe);
+    setTimeout(() => {
+      try { document.body.removeChild(iframe); } catch {}
+    }, 120000);
 
     try {
       confetti({

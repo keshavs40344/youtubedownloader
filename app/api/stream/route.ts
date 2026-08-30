@@ -118,18 +118,40 @@ export async function GET(req: NextRequest) {
     const directUrls = stdout.trim().split("\n").filter(Boolean);
 
     if (exitCode === 0 && directUrls.length > 0 && directUrls[0].startsWith("http")) {
-      let cdnUrl = directUrls[0];
-      if (!cdnUrl.includes("&title=")) {
-        cdnUrl += `&title=${encodeURIComponent(sanitizeFilename(rawTitle))}`;
-      }
-
-      // 307 Temporary Redirect: Hands off download directly to Google CDN with 0 Vercel limits
-      return NextResponse.redirect(cdnUrl, {
-        status: 307,
+      const cdnUrl = directUrls[0];
+      const cdnRes = await fetch(cdnUrl, {
         headers: {
-          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         },
+        signal: req.signal,
       });
+
+      if (cdnRes.ok && cdnRes.body) {
+        const mimeTypes: Record<string, string> = {
+          mp4: "video/mp4",
+          m4a: "audio/mp4",
+          webm: "video/webm",
+          opus: "audio/opus",
+          mp3: "audio/mpeg",
+        };
+
+        const contentType = cdnRes.headers.get("content-type") || mimeTypes[ext] || "video/mp4";
+        const contentLength = cdnRes.headers.get("content-length");
+
+        const responseHeaders: Record<string, string> = {
+          "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+          "Content-Type": contentType,
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+        };
+
+        if (contentLength) {
+          responseHeaders["Content-Length"] = contentLength;
+        }
+
+        return new NextResponse(cdnRes.body as any, {
+          headers: responseHeaders,
+        });
+      }
     }
 
     throw new Error(stderr || "Direct media stream could not be extracted.");

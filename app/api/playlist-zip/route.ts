@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
-import { PassThrough } from "stream";
-import path from "path";
-import fs from "fs";
-import { getYtDlpRunner, getFfmpegPath } from "@/lib/ytdlp";
+import { PassThrough, Readable } from "stream";
+import https from "https";
+import http from "http";
+import { getYtDlpRunner, getProductionExtractorArgs } from "@/lib/ytdlp";
 
-const archiver = require("archiver");
+const { ZipArchive } = require("archiver");
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,97 +48,68 @@ function isValidYouTubeUrl(rawUrl: string): boolean {
   }
 }
 
-async function downloadSingleItem(
-  url: string,
-  outPath: string,
-  quality: string,
-  type: string,
-  ffmpegPath: string | null,
+function getDirectStreamUrl(
+  videoUrl: string,
+  formatSelector: string,
   runner: { command: string; prefixArgs: string[] },
-  signal?: AbortSignal
-): Promise<boolean> {
+  defaultArgs: string[]
+): Promise<string | null> {
   return new Promise((resolve) => {
-    let formatSelector = "18/best[ext=mp4]/best";
-
-    if (type === "audio") {
-      if (quality === "m4a") {
-        formatSelector = "bestaudio[ext=m4a]/bestaudio/best";
-      } else {
-        formatSelector = "bestaudio/best";
-      }
-    } else {
-      if (quality === "1080") {
-        formatSelector = "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best";
-      } else if (quality === "720") {
-        formatSelector = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best";
-      } else if (quality === "480") {
-        formatSelector = "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best";
-      } else {
-        formatSelector = "18/best[ext=mp4]/best";
-      }
-    }
-
     const args = [
       ...runner.prefixArgs,
       "--js-runtimes",
       "node",
       "--remote-components",
       "ejs:github",
-      "--extractor-args",
-      "youtube:player_client=android_creator,tv_embedded,android_music,android;player_skip=configs",
-      "--no-check-certificates",
-      "--socket-timeout",
-      "10",
-      "--retries",
-      "3",
+      ...defaultArgs,
       "-f",
       formatSelector,
-      "--no-warnings",
-      "--no-progress",
+      "-g",
+      "--",
+      videoUrl.trim(),
     ];
-
-    if (ffmpegPath) {
-      args.push("--ffmpeg-location", ffmpegPath);
-      if (type === "video") {
-        args.push("--merge-output-format", "mp4");
-      }
-    }
-
-    const isWin = process.platform === "win32";
-    const cookiesEnv = process.env.YOUTUBE_COOKIES || process.env.COOKIES_TXT;
-    const cookiesFile = isWin ? path.join(process.cwd(), "cookies.txt") : "/tmp/cookies.txt";
-    if (cookiesEnv) {
-      try {
-        if (!fs.existsSync(cookiesFile) || fs.readFileSync(cookiesFile, "utf-8") !== cookiesEnv.trim()) {
-          fs.writeFileSync(cookiesFile, cookiesEnv.trim(), "utf-8");
-        }
-        args.push("--cookies", cookiesFile);
-      } catch {}
-    } else if (fs.existsSync(cookiesFile)) {
-      args.push("--cookies", cookiesFile);
-    }
-
-    args.push("-o", outPath, "--", url.trim());
 
     const child = spawn(runner.command, args, {
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
+    let stdout = "";
+    child.stdout?.on("data", (d) => (stdout += d.toString()));
+
     child.on("close", (code) => {
-      resolve(code === 0 && fs.existsSync(outPath));
+      if (code === 0) {
+        const directUrls = stdout.trim().split("\n").filter(Boolean);
+        resolve(directUrls[0] || null);
+      } else {
+        resolve(null);
+      }
     });
 
-    child.on("error", () => {
-      resolve(false);
-    });
+    child.on("error", () => resolve(null));
+  });
+}
 
-    if (signal) {
-      signal.addEventListener("abort", () => {
-        try { child.kill("SIGKILL"); } catch {}
-        try { if (fs.existsSync(outPath)) fs.unlinkSync(outPath); } catch {}
-      });
-    }
+function fetchHttpStream(targetUrl: string): Promise<Readable | null> {
+  return new Promise((resolve) => {
+    const client = targetUrl.startsWith("https") ? https : http;
+    client
+      .get(
+        targetUrl,
+        {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          },
+        },
+        (res) => {
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(res);
+          } else {
+            resolve(null);
+          }
+        }
+      )
+      .on("error", () => resolve(null));
   });
 }
 
@@ -156,16 +127,10 @@ export async function GET(req: NextRequest) {
   const quality = /^[a-zA-Z0-9_-]{1,10}$/.test(rawQuality) ? rawQuality : "720";
   const type = rawType === "audio" ? "audio" : "video";
   const ext = type === "audio" ? (quality === "m4a" ? "m4a" : "mp3") : "mp4";
-  const zipFilename = `${sanitizeFilename(rawTitle)}_${quality}p_Archive.zip`;
-
-  const isWin = process.platform === "win32";
-  const tempDir = isWin ? path.join(process.cwd(), "scratch") : "/tmp";
-  if (!fs.existsSync(tempDir)) {
-    try { fs.mkdirSync(tempDir, { recursive: true }); } catch {}
-  }
+  const zipFilename = `${sanitizeFilename(rawTitle)}_${quality}${type === "audio" ? "" : "p"}_Single_Archive.zip`;
 
   const runner = getYtDlpRunner();
-  const ffmpegPath = getFfmpegPath();
+  const defaultArgs = getProductionExtractorArgs();
 
   // 1. Fetch list of videos from playlist
   let videoItems: { id: string; title: string; url: string }[] = [];
@@ -177,7 +142,11 @@ export async function GET(req: NextRequest) {
       "--no-warnings",
       rawUrl.trim(),
     ];
-    const listProc = spawn(runner.command, listArgs, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    const listProc = spawn(runner.command, listArgs, {
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
     let stdout = "";
     listProc.stdout?.on("data", (d) => (stdout += d.toString()));
 
@@ -198,68 +167,69 @@ export async function GET(req: NextRequest) {
       } catch {
         return { id: "vid", title: "video", url: "" };
       }
-    }).filter(i => i.url);
+    }).filter((i) => i.url);
   } catch (e) {
     console.warn("Playlist listing error:", e);
   }
 
   if (videoItems.length === 0) {
-    return new NextResponse("No playable videos found in this playlist.", { status: 404 });
+    return new NextResponse("Could not fetch videos from this playlist. Please verify the URL.", { status: 404 });
   }
 
-  // 2. Set up Archiver Zip Stream
-  const passThrough = new PassThrough();
-  const archive = archiver("zip", { zlib: { level: 4 } });
+  let formatSelector = "18/best[ext=mp4]/best";
+  if (type === "audio") {
+    if (quality === "m4a") {
+      formatSelector = "bestaudio[ext=m4a]/bestaudio/best";
+    } else {
+      formatSelector = "bestaudio/best";
+    }
+  } else {
+    if (quality === "1080") {
+      formatSelector = "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080]/18/best";
+    } else if (quality === "720") {
+      formatSelector = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]/18/best";
+    } else if (quality === "480") {
+      formatSelector = "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480]/18/best";
+    } else {
+      formatSelector = "18/best[ext=mp4]/best";
+    }
+  }
 
-  archive.on("error", (err) => {
-    console.error("Archive error:", err);
+  // 2. Set up Archiver Zip Stream with ZipArchive
+  const passThrough = new PassThrough();
+  const zip = new ZipArchive({ zlib: { level: 2 } });
+
+  zip.on("error", (err: any) => {
+    console.error("Zip error:", err);
     passThrough.destroy(err);
   });
 
-  archive.pipe(passThrough);
+  zip.pipe(passThrough);
 
-  // Background downloader loop that feeds files into the zip archive
+  // Background downloader that appends streams directly to ZIP
   (async () => {
-    const createdFiles: string[] = [];
     try {
       for (let i = 0; i < videoItems.length; i++) {
         if (req.signal.aborted) break;
         const item = videoItems[i];
-        const fileUnique = `pl_${Date.now()}_${i}_${Math.random().toString(36).substring(7)}.${ext}`;
-        const tempPath = path.join(tempDir, fileUnique);
+        const cleanName = `${(i + 1).toString().padStart(2, "0")}_${sanitizeFilename(item.title)}.${ext}`;
 
-        const ok = await downloadSingleItem(
-          item.url,
-          tempPath,
-          quality,
-          type,
-          ffmpegPath,
-          runner,
-          req.signal
-        );
-
-        if (ok && fs.existsSync(tempPath)) {
-          createdFiles.push(tempPath);
-          const cleanName = `${(i + 1).toString().padStart(2, "0")}_${sanitizeFilename(item.title)}.${ext}`;
-          archive.file(tempPath, { name: cleanName });
+        const directUrl = await getDirectStreamUrl(item.url, formatSelector, runner, defaultArgs);
+        if (directUrl) {
+          const stream = await fetchHttpStream(directUrl);
+          if (stream) {
+            zip.append(stream, { name: cleanName });
+            await new Promise((res) => {
+              stream.on("end", res);
+              stream.on("error", res);
+            });
+          }
         }
       }
 
-      await archive.finalize();
+      await zip.finalize();
     } catch (err: any) {
-      console.error("Playlist zip process error:", err.message);
-    } finally {
-      // Clean up files once stream completes
-      passThrough.on("end", () => {
-        for (const f of createdFiles) {
-          try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {}
-        }
-      });
-      passThrough.on("close", () => {
-        for (const f of createdFiles) {
-          try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {}
-        }
-      });
+      console.error("Playlist zip finalization error:", err.message);
     }
   })();
 
